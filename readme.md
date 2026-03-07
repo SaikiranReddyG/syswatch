@@ -1,0 +1,1 @@
+A terminal system monitor like htop, built in C with ncurses. Reads/proc filesystem directly to display CPU, memory, disk, networks stats and per-process info in a live updating UI
