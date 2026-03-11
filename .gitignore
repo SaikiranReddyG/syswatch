@@ -1,0 +1,14 @@
+syswatch
+*.o
+*.out
+*.a
+*.so
+*.dSYM/
+core
+core.*
+
+.vscode/
+.idea/
+*~
+*.swp
+*.swo
