@@ -46,6 +46,80 @@ static void sum_net_rates(const net_stats_t *net, double *rx_bps, double *tx_bps
 	}
 }
 
+static void print_disk_details_human(const disk_stats_t *disk)
+{
+	int i;
+
+	if (!disk || disk->count == 0) {
+		printf("none");
+		return;
+	}
+
+	for (i = 0; i < disk->count; i++) {
+		char rd[16];
+		char wr[16];
+		format_bytes(disk->items[i].read_bps, rd, sizeof(rd));
+		format_bytes(disk->items[i].write_bps, wr, sizeof(wr));
+		printf("%s:%s/%s", disk->items[i].name, rd, wr);
+		if (i + 1 < disk->count) {
+			printf(" ");
+		}
+	}
+}
+
+static void print_net_details_human(const net_stats_t *net)
+{
+	int i;
+
+	if (!net || net->count == 0) {
+		printf("none");
+		return;
+	}
+
+	for (i = 0; i < net->count; i++) {
+		char rx[16];
+		char tx[16];
+		format_bytes(net->items[i].rx_bps, rx, sizeof(rx));
+		format_bytes(net->items[i].tx_bps, tx, sizeof(tx));
+		printf("%s:%s/%s", net->items[i].name, rx, tx);
+		if (i + 1 < net->count) {
+			printf(" ");
+		}
+	}
+}
+
+static void print_disk_details_csv(const disk_stats_t *disk)
+{
+	int i;
+
+	printf(",\"");
+	if (disk) {
+		for (i = 0; i < disk->count; i++) {
+			printf("%s:%.2f/%.2f", disk->items[i].name, disk->items[i].read_bps, disk->items[i].write_bps);
+			if (i + 1 < disk->count) {
+				printf(";");
+			}
+		}
+	}
+	printf("\"");
+}
+
+static void print_net_details_csv(const net_stats_t *net)
+{
+	int i;
+
+	printf(",\"");
+	if (net) {
+		for (i = 0; i < net->count; i++) {
+			printf("%s:%.2f/%.2f", net->items[i].name, net->items[i].rx_bps, net->items[i].tx_bps);
+			if (i + 1 < net->count) {
+				printf(";");
+			}
+		}
+	}
+	printf("\"");
+}
+
 void display_print_header(const syswatch_config_t *cfg)
 {
 	if (!cfg) {
@@ -62,9 +136,15 @@ void display_print_header(const syswatch_config_t *cfg)
 		}
 		if (cfg->show_disk) {
 			printf(",disk_read_bps,disk_write_bps");
+			if (cfg->show_disk_details) {
+				printf(",disk_devices");
+			}
 		}
 		if (cfg->show_network) {
 			printf(",net_rx_bps,net_tx_bps");
+			if (cfg->show_network_details) {
+				printf(",net_interfaces");
+			}
 		}
 		if (cfg->show_processes) {
 			printf(",top_pid,top_comm,top_cpu_pct,top_mem_bytes");
@@ -82,9 +162,15 @@ void display_print_header(const syswatch_config_t *cfg)
 	}
 	if (cfg->show_disk) {
 		printf(" %10s %10s", "disk_rd/s", "disk_wr/s");
+		if (cfg->show_disk_details) {
+			printf("  disk_devices");
+		}
 	}
 	if (cfg->show_network) {
 		printf(" %10s %10s", "net_rx/s", "net_tx/s");
+		if (cfg->show_network_details) {
+			printf("  net_interfaces");
+		}
 	}
 	if (cfg->show_processes) {
 		printf("  top_processes");
@@ -131,9 +217,15 @@ void display_print_row(const syswatch_config_t *cfg,
 		}
 		if (cfg->show_disk) {
 			printf(",%.2f,%.2f", disk_read_bps, disk_write_bps);
+			if (cfg->show_disk_details) {
+				print_disk_details_csv(disk);
+			}
 		}
 		if (cfg->show_network) {
 			printf(",%.2f,%.2f", net_rx_bps, net_tx_bps);
+			if (cfg->show_network_details) {
+				print_net_details_csv(net);
+			}
 		}
 		if (cfg->show_processes) {
 			if (plist && plist->count > 0) {
@@ -177,6 +269,10 @@ void display_print_row(const syswatch_config_t *cfg,
 		format_bytes(disk_read_bps, rd, sizeof(rd));
 		format_bytes(disk_write_bps, wr, sizeof(wr));
 		printf(" %10s %10s", rd, wr);
+		if (cfg->show_disk_details) {
+			printf("  ");
+			print_disk_details_human(disk);
+		}
 	}
 	if (cfg->show_network) {
 		char rx[16];
@@ -185,6 +281,10 @@ void display_print_row(const syswatch_config_t *cfg,
 		format_bytes(net_rx_bps, rx, sizeof(rx));
 		format_bytes(net_tx_bps, tx, sizeof(tx));
 		printf(" %10s %10s", rx, tx);
+		if (cfg->show_network_details) {
+			printf("  ");
+			print_net_details_human(net);
+		}
 	}
 
 	if (cfg->show_processes) {

@@ -43,6 +43,8 @@ Options:
 - `--no-memory` hide memory columns
 - `--no-disk` hide disk columns
 - `--no-network` hide network columns
+- `--disk-details` show per-disk throughput breakdown
+- `--net-details` show per-interface throughput breakdown
 - `--include-lo` include loopback interface (`lo`) in network totals
 - `-p, --processes` show top process summary column
 - `-t, --top N` number of top processes to include in human mode (default: `5`)
@@ -81,12 +83,18 @@ Include top processes sorted by memory:
 ./syswatch -p -s mem -t 3
 ```
 
+Show per-device and per-interface throughput details:
+
+```bash
+./syswatch --disk-details --net-details -n 5
+```
+
 ## Output Notes
 
 - CPU/network/disk values are rates, so the tool captures a baseline and prints the first row after one interval.
 - Memory usage uses `MemAvailable`, matching modern Linux memory interpretation.
-- Disk and network rows are aggregate totals in main columns; per-device/interface values are still parsed internally.
-- Process CPU percentage is based on process CPU time relative to system uptime (good for ranking, not an instantaneous per-tick profiler).
+- Disk/network aggregate columns are always present when enabled; optional detail columns show per-disk and per-interface rates.
+- Process CPU percentage is computed per tick from process jiffy delta divided by total CPU jiffy delta.
 
 ## Progress Log
 
@@ -96,6 +104,8 @@ Include top processes sorted by memory:
 - [x] Optional process collector and sorting.
 - [x] Dual output renderer (human + CSV).
 - [x] Main loop, argument parsing, and Ctrl+C handling.
+- [x] Optional per-disk/per-interface detail output in human and CSV modes.
+- [x] Per-tick process CPU percentage based on deltas.
 - [ ] Additional tests/benchmarks for very large process counts and unusual device naming environments.
 
 ## Limitations

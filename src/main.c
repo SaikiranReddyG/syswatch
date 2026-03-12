@@ -85,6 +85,8 @@ void init_default_config(syswatch_config_t *cfg)
 	cfg->show_disk = true;
 	cfg->show_network = true;
 	cfg->show_processes = false;
+	cfg->show_disk_details = false;
+	cfg->show_network_details = false;
 
 	cfg->include_loopback = false;
 	cfg->process_sort = PROCESS_SORT_CPU;
@@ -101,6 +103,8 @@ void print_usage(const char *prog)
 	printf("      --no-memory         Hide memory columns\n");
 	printf("      --no-disk           Hide disk columns\n");
 	printf("      --no-network        Hide network columns\n");
+	printf("      --disk-details      Show per-disk throughput breakdown\n");
+	printf("      --net-details       Show per-interface throughput breakdown\n");
 	printf("      --include-lo        Include loopback interface in network stats\n");
 	printf("  -p, --processes         Show top processes column\n");
 	printf("  -t, --top N             Number of top processes to include (default: 5)\n");
@@ -120,6 +124,8 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 		{"no-memory", no_argument, NULL, 1001},
 		{"no-disk", no_argument, NULL, 1002},
 		{"no-network", no_argument, NULL, 1003},
+		{"disk-details", no_argument, NULL, 1005},
+		{"net-details", no_argument, NULL, 1006},
 		{"include-lo", no_argument, NULL, 1004},
 		{"processes", no_argument, NULL, 'p'},
 		{"top", required_argument, NULL, 't'},
@@ -186,6 +192,12 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 			break;
 		case 1004:
 			cfg->include_loopback = true;
+			break;
+		case 1005:
+			cfg->show_disk_details = true;
+			break;
+		case 1006:
+			cfg->show_network_details = true;
 			break;
 		default:
 			return -1;

@@ -32,6 +32,8 @@ typedef struct {
 	bool show_disk;
 	bool show_network;
 	bool show_processes;
+	bool show_disk_details;
+	bool show_network_details;
 
 	bool include_loopback;
 	process_sort_mode_t process_sort;
