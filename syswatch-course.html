@@ -1,0 +1,1591 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Syswatch Deep Dive Course</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --color-bg: #f8f6f1;
+      --color-bg-warm: #f2ece2;
+      --color-bg-code: #1f2430;
+      --color-text: #262421;
+      --color-text-secondary: #655f58;
+      --color-text-muted: #918a81;
+      --color-border: #dfd7cc;
+      --color-border-light: #ece7de;
+      --color-surface: #ffffff;
+      --color-surface-warm: #fcf8f1;
+
+      --color-accent: #b64024;
+      --color-accent-hover: #963720;
+      --color-accent-light: #faebe5;
+      --color-accent-muted: #d47b65;
+
+      --color-success: #2e8453;
+      --color-success-light: #e7f3eb;
+      --color-error: #bf3c34;
+      --color-error-light: #fbe8e7;
+      --color-info: #2b7694;
+      --color-info-light: #e5f0f4;
+
+      --color-actor-1: #b64024;
+      --color-actor-2: #2b7694;
+      --color-actor-3: #816b9a;
+      --color-actor-4: #c78f34;
+      --color-actor-5: #2e8453;
+
+      --font-display: "Bricolage Grotesque", Georgia, serif;
+      --font-body: "DM Sans", -apple-system, sans-serif;
+      --font-mono: "JetBrains Mono", "Fira Code", Consolas, monospace;
+
+      --text-xs: 0.75rem;
+      --text-sm: 0.875rem;
+      --text-base: 1rem;
+      --text-lg: 1.125rem;
+      --text-xl: 1.25rem;
+      --text-2xl: 1.5rem;
+      --text-3xl: 1.875rem;
+      --text-4xl: 2.25rem;
+      --text-5xl: 3rem;
+      --text-6xl: 3.75rem;
+
+      --leading-tight: 1.15;
+      --leading-snug: 1.3;
+      --leading-normal: 1.6;
+      --leading-loose: 1.8;
+
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --space-10: 2.5rem;
+      --space-12: 3rem;
+      --space-16: 4rem;
+      --space-20: 5rem;
+      --space-24: 6rem;
+
+      --content-width: 900px;
+      --content-width-wide: 1100px;
+      --nav-height: 56px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-full: 9999px;
+
+      --shadow-sm: 0 1px 2px rgba(44, 42, 40, 0.05);
+      --shadow-md: 0 4px 12px rgba(44, 42, 40, 0.08);
+      --shadow-lg: 0 8px 24px rgba(44, 42, 40, 0.1);
+      --shadow-xl: 0 16px 48px rgba(44, 42, 40, 0.12);
+
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+      --duration-fast: 150ms;
+      --duration-normal: 300ms;
+      --duration-slow: 500ms;
+      --stagger-delay: 120ms;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-snap-type: y proximity;
+      background: var(--color-bg);
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--color-text);
+      background: radial-gradient(ellipse at 12% 45%, rgba(182, 64, 36, 0.05) 0%, transparent 44%),
+                  radial-gradient(ellipse at 88% 75%, rgba(43, 118, 148, 0.06) 0%, transparent 52%),
+                  var(--color-bg);
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: var(--radius-full); }
+
+    .nav {
+      position: fixed;
+      inset: 0 0 auto 0;
+      height: var(--nav-height);
+      border-bottom: 1px solid var(--color-border-light);
+      background: rgba(248, 246, 241, 0.92);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+    }
+
+    .progress-bar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 3px;
+      width: 0%;
+      background: linear-gradient(90deg, var(--color-accent), #2b7694);
+      transition: width 120ms linear;
+    }
+
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      padding: 0 var(--space-4);
+    }
+
+    .nav-title {
+      font-family: var(--font-display);
+      font-size: var(--text-base);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .nav-dots {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .nav-dot {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      border: 2px solid var(--color-text-muted);
+      background: transparent;
+      cursor: pointer;
+      transition: all var(--duration-normal) var(--ease-out);
+    }
+
+    .nav-dot.visited {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      opacity: 0.55;
+    }
+
+    .nav-dot.active {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      opacity: 1;
+      box-shadow: 0 0 0 4px rgba(182, 64, 36, 0.18);
+    }
+
+    .module {
+      min-height: 100vh;
+      min-height: 100dvh;
+      scroll-snap-align: start;
+      padding: var(--space-16) var(--space-6);
+      padding-top: calc(var(--nav-height) + var(--space-10));
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .module:nth-of-type(odd) { background: var(--color-bg-warm); }
+    .module:nth-of-type(even) { background: var(--color-bg); }
+
+    .module-content {
+      max-width: var(--content-width-wide);
+      margin: 0 auto;
+    }
+
+    .module-header {
+      margin-bottom: var(--space-10);
+    }
+
+    .module-number {
+      display: inline-block;
+      font-family: var(--font-display);
+      font-size: var(--text-6xl);
+      font-weight: 800;
+      color: rgba(182, 64, 36, 0.16);
+      line-height: 0.95;
+      margin-bottom: var(--space-3);
+    }
+
+    .module-title {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: var(--text-4xl);
+      line-height: var(--leading-tight);
+      letter-spacing: 0.01em;
+    }
+
+    .module-subtitle {
+      margin: var(--space-3) 0 0;
+      max-width: 70ch;
+      color: var(--color-text-secondary);
+      font-size: var(--text-lg);
+      line-height: var(--leading-normal);
+    }
+
+    .screen {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: var(--space-8);
+      margin-bottom: var(--space-8);
+    }
+
+    .screen-heading {
+      margin: 0 0 var(--space-4);
+      font-family: var(--font-display);
+      font-size: var(--text-2xl);
+      line-height: var(--leading-snug);
+    }
+
+    .lead {
+      margin: 0 0 var(--space-5);
+      color: var(--color-text-secondary);
+      font-size: var(--text-base);
+      line-height: var(--leading-normal);
+      max-width: 74ch;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-4);
+      margin-top: var(--space-4);
+    }
+
+    .card {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+      background: var(--color-surface-warm);
+    }
+
+    .card h4 {
+      margin: 0 0 var(--space-2);
+      font-family: var(--font-display);
+      font-size: var(--text-lg);
+    }
+
+    .card p {
+      margin: 0;
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      line-height: var(--leading-normal);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: var(--radius-full);
+      border: 1px solid var(--color-border);
+      padding: 0.25rem 0.55rem;
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-right: var(--space-2);
+      background: var(--color-surface);
+      color: var(--color-text-secondary);
+    }
+
+    .translation-block {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+      margin-top: var(--space-6);
+    }
+
+    .translation-code {
+      position: relative;
+      background: var(--color-bg-code);
+      color: #cfd6e6;
+      padding: var(--space-6);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: 1.65;
+      overflow-x: hidden;
+    }
+
+    .translation-code pre,
+    .translation-code code,
+    pre,
+    code {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: hidden;
+    }
+
+    .translation-english {
+      position: relative;
+      background: var(--color-surface-warm);
+      border-left: 3px solid var(--color-accent);
+      padding: var(--space-6);
+      font-size: var(--text-sm);
+      line-height: 1.7;
+      color: var(--color-text);
+    }
+
+    .translation-label {
+      position: absolute;
+      top: var(--space-2);
+      right: var(--space-3);
+      font-size: var(--text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.55;
+      font-family: var(--font-mono);
+    }
+
+    .tl {
+      margin: 0 0 var(--space-2);
+    }
+
+    .callout {
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      padding: var(--space-4);
+      margin: var(--space-5) 0 0;
+      background: var(--color-info-light);
+    }
+
+    .callout .label {
+      display: inline-block;
+      margin-bottom: var(--space-2);
+      font-size: var(--text-xs);
+      font-family: var(--font-mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #1f556d;
+    }
+
+    .callout p {
+      margin: 0;
+      color: #1f4454;
+      font-size: var(--text-sm);
+      line-height: var(--leading-normal);
+    }
+
+    .flow-steps {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      gap: var(--space-2);
+      margin-top: var(--space-5);
+    }
+
+    .flow-step {
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      border-radius: var(--radius-sm);
+      padding: var(--space-3);
+      font-size: var(--text-xs);
+      line-height: 1.45;
+      position: relative;
+      text-align: center;
+    }
+
+    .flow-step::after {
+      content: "→";
+      position: absolute;
+      right: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--color-accent-muted);
+      font-weight: 700;
+    }
+
+    .flow-step:last-child::after {
+      content: "";
+    }
+
+    .mindmap-container,
+    .diagram-box {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      padding: var(--space-4);
+      margin-top: var(--space-5);
+    }
+
+    .diagram-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+    }
+
+    .diagram-label {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+    }
+
+    .mindmap-svg,
+    .dependency-svg,
+    .flowchart-svg {
+      width: 100%;
+      max-height: 520px;
+    }
+
+    .mm-btn {
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-1) var(--space-3);
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+    }
+
+    .mm-info {
+      margin-top: var(--space-3);
+      border-radius: var(--radius-sm);
+      background: var(--color-bg-code);
+      color: #cfd6e6;
+      padding: var(--space-4);
+      font-size: var(--text-sm);
+      line-height: var(--leading-normal);
+      min-height: 72px;
+    }
+
+    .mm-info-title {
+      display: block;
+      color: var(--color-accent-muted);
+      margin-bottom: var(--space-1);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-5);
+      margin-top: var(--space-5);
+    }
+
+    .file-tree {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-warm);
+      padding: var(--space-4);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: 1.7;
+    }
+
+    .file-tree .muted { color: var(--color-text-muted); }
+
+    .sequence {
+      border: 1px dashed var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-4);
+      background: var(--color-surface);
+      overflow-x: auto;
+    }
+
+    .seq-grid {
+      min-width: 640px;
+      display: grid;
+      grid-template-columns: 120px 1fr 1fr 1fr;
+      gap: var(--space-2);
+      align-items: center;
+      font-size: var(--text-sm);
+    }
+
+    .seq-head {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-text-muted);
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .seq-step {
+      padding: var(--space-2);
+      border-radius: var(--radius-sm);
+      background: var(--color-accent-light);
+      border: 1px solid #f3d1c8;
+    }
+
+    .seq-arrow {
+      text-align: center;
+      color: var(--color-accent);
+      font-weight: 700;
+    }
+
+    .data-flow {
+      position: relative;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-5);
+      background: linear-gradient(90deg, #fff, #fdfaf6);
+      overflow: hidden;
+      min-height: 170px;
+    }
+
+    .df-track {
+      position: absolute;
+      left: 56px;
+      right: 56px;
+      top: 50%;
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #f0d9d1, #dce9ee, #d5eadf);
+      transform: translateY(-50%);
+    }
+
+    .df-node {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      min-width: 120px;
+      text-align: center;
+      font-size: var(--text-xs);
+      font-family: var(--font-mono);
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-full);
+      background: #fff;
+      border: 1px solid var(--color-border);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .df-node.n1 { left: 10%; }
+    .df-node.n2 { left: 36%; }
+    .df-node.n3 { left: 62%; }
+    .df-node.n4 { left: 88%; }
+
+    .df-pulse {
+      position: absolute;
+      top: 50%;
+      left: 10%;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      transform: translate(-50%, -50%);
+      animation: pulseMove 5.5s ease-in-out infinite;
+      box-shadow: 0 0 0 0 rgba(182, 64, 36, 0.35);
+    }
+
+    @keyframes pulseMove {
+      0% { left: 10%; box-shadow: 0 0 0 0 rgba(182, 64, 36, 0.35); }
+      25% { left: 36%; }
+      50% { left: 62%; box-shadow: 0 0 0 12px rgba(182, 64, 36, 0); }
+      75% { left: 88%; }
+      100% { left: 10%; }
+    }
+
+    .pattern-cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-4);
+      margin-top: var(--space-4);
+    }
+
+    .pattern {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-4);
+      background: #fff;
+    }
+
+    .pattern h4 {
+      margin: 0 0 var(--space-2);
+      font-family: var(--font-display);
+      font-size: var(--text-lg);
+    }
+
+    .pattern p {
+      margin: 0;
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+    }
+
+    .code-keyword { color: #f3a94f; }
+    .code-function { color: #7bc1e1; }
+    .code-string { color: #9ed09f; }
+    .code-number { color: #f6be78; }
+    .code-comment { color: #8290ab; }
+
+    .glossary {
+      text-decoration: underline dashed;
+      text-underline-offset: 3px;
+      cursor: help;
+      color: #154d66;
+    }
+
+    .tooltip {
+      position: fixed;
+      z-index: 300;
+      max-width: 280px;
+      background: #1f2430;
+      color: #e6ecfa;
+      border: 1px solid #2f3850;
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-lg);
+      font-size: var(--text-xs);
+      line-height: 1.5;
+      padding: var(--space-2) var(--space-3);
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+    }
+
+    .tooltip.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .animate-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out);
+    }
+
+    .animate-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .stagger-children > .animate-in {
+      transition-delay: calc(var(--stagger-index, 0) * var(--stagger-delay));
+    }
+
+    .footer-note {
+      color: var(--color-text-secondary);
+      font-size: var(--text-sm);
+      margin-top: var(--space-4);
+    }
+
+    @media (max-width: 900px) {
+      :root {
+        --text-4xl: 1.875rem;
+        --text-5xl: 2.25rem;
+        --text-6xl: 2.8rem;
+      }
+
+      .cards { grid-template-columns: 1fr 1fr; }
+      .pattern-cards { grid-template-columns: 1fr; }
+      .two-col { grid-template-columns: 1fr; }
+      .translation-block { grid-template-columns: 1fr; }
+      .translation-english { border-left: none; border-top: 3px solid var(--color-accent); }
+      .flow-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 560px) {
+      :root {
+        --text-4xl: 1.55rem;
+        --text-5xl: 1.95rem;
+        --text-6xl: 2.4rem;
+      }
+
+      .module { padding: var(--space-8) var(--space-4); padding-top: calc(var(--nav-height) + var(--space-8)); }
+      .screen { padding: var(--space-5); }
+      .cards { grid-template-columns: 1fr; }
+      .flow-steps { grid-template-columns: 1fr; }
+      .flow-step::after { content: "↓"; right: 50%; top: auto; bottom: -14px; transform: translateX(50%); }
+      .flow-step:last-child::after { content: ""; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="progress-bar" role="progressbar" aria-valuenow="0"></div>
+    <div class="nav-inner">
+      <span class="nav-title">Syswatch: From /proc to Terminal Metrics</span>
+      <div class="nav-dots" role="tablist" aria-label="Course modules">
+        <button class="nav-dot" data-target="module-1" aria-label="Module 1"></button>
+        <button class="nav-dot" data-target="module-2" aria-label="Module 2"></button>
+        <button class="nav-dot" data-target="module-3" aria-label="Module 3"></button>
+        <button class="nav-dot" data-target="module-4" aria-label="Module 4"></button>
+        <button class="nav-dot" data-target="module-5" aria-label="Module 5"></button>
+        <button class="nav-dot" data-target="module-6" aria-label="Module 6"></button>
+        <button class="nav-dot" data-target="module-7" aria-label="Module 7"></button>
+        <button class="nav-dot" data-target="module-8" aria-label="Module 8"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <section class="module" id="module-1">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">01</span>
+          <h1 class="module-title">What Syswatch Is When It Runs</h1>
+          <p class="module-subtitle">You launch one binary, and it repeatedly samples Linux kernel counters from /proc, computes rates, and prints a row every tick.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Runtime Story in 6 Beats</h2>
+          <p class="lead">This tool is a narrow loop with one job: collect snapshots, compute deltas, render output. The key idea is that rates like CPU and network are <span class="glossary" data-tip="Delta means difference between two snapshots. Here it is current counter minus previous counter.">delta-based</span>, so one warm-up interval is required.</p>
+          <div class="flow-steps stagger-children">
+            <div class="flow-step animate-in">Parse flags</div>
+            <div class="flow-step animate-in">Read baselines</div>
+            <div class="flow-step animate-in">Sleep interval</div>
+            <div class="flow-step animate-in">Read current stats</div>
+            <div class="flow-step animate-in">Compute rates + percentages</div>
+            <div class="flow-step animate-in">Print row (human or CSV)</div>
+          </div>
+          <div class="callout">
+            <span class="label">Aha</span>
+            <p>The first printed row is intentionally delayed whenever CPU/disk/network are enabled, because you need two snapshots to get a per-second rate.</p>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Code ↔ English: Main Loop Control</h2>
+          <div class="translation-block">
+            <div class="translation-code">
+              <span class="translation-label">Code</span>
+<pre><code>rows = 0;
+need_sleep_before_row = need_baseline;
+
+while (!g_stop && (cfg.iterations == 0 || rows &lt; cfg.iterations)) {
+	const cpu_stats_t *cpu_ptr;
+	const memory_stats_t *mem_ptr;
+	const disk_stats_t *disk_ptr;</code></pre>
+            </div>
+            <div class="translation-english">
+              <span class="translation-label">Plain English</span>
+              <p class="tl">Start counting output rows from zero.</p>
+              <p class="tl">If any metric needs deltas, enforce an initial sleep before the first row.</p>
+              <p class="tl">Keep looping until Ctrl+C sets the stop flag, or until iterations are exhausted.</p>
+              <p class="tl">Each pointer will either point to valid fresh stats or remain NULL if that collector failed this tick.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="module" id="module-2">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">02</span>
+          <h1 class="module-title">Architecture Map and File Roles</h1>
+          <p class="module-subtitle">The project is modular C: one coordinator, multiple collectors, one renderer, and shared parsing utilities.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Visual File Tree</h2>
+          <div class="file-tree">
+            syswatch
+            <div>├── Makefile <span class="muted">(build + debug targets)</span></div>
+            <div>└── src</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;├── main.c <span class="muted">(arg parse + control loop)</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;├── syswatch.h <span class="muted">(contracts and structs)</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;├── cpu.c / memory.c / disk.c / network.c / process.c</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;├── display.c <span class="muted">(headers + rows for human/CSV)</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;└── utils.c <span class="muted">(small reusable helpers)</span></div>
+          </div>
+
+          <div class="cards">
+            <article class="card">
+              <h4>Entry Point</h4>
+              <p>main.c configures behavior, orchestrates timing, and joins all collectors into one output row.</p>
+            </article>
+            <article class="card">
+              <h4>Data Contracts</h4>
+              <p>syswatch.h pins shared limits and data structures so modules stay consistent without dynamic allocations.</p>
+            </article>
+            <article class="card">
+              <h4>Collector Pattern</h4>
+              <p>Each metric has read_snapshot/read_stats style functions and can fail independently without crashing the loop.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Interactive Mindmap</h2>
+          <div class="mindmap-container">
+            <div class="diagram-header">
+              <span class="diagram-label">Architecture Mindmap</span>
+              <div>
+                <button class="mm-btn" id="mm-zoom-in">+</button>
+                <button class="mm-btn" id="mm-zoom-out">-</button>
+                <button class="mm-btn" id="mm-reset">Reset</button>
+              </div>
+            </div>
+            <svg id="mindmap-svg" class="mindmap-svg" viewBox="0 0 920 560" aria-label="syswatch architecture mindmap"></svg>
+            <div id="mm-info" class="mm-info"><span class="mm-info-title">Click a node</span><span class="mm-info-desc">See how each module contributes to one output row.</span></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Dependency Graph</h2>
+          <div class="diagram-box">
+            <div class="diagram-header"><span class="diagram-label">File / Module Dependencies</span></div>
+            <svg id="dep-svg" class="dependency-svg" viewBox="0 0 920 360" aria-label="dependency graph"></svg>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="module" id="module-3">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">03</span>
+          <h1 class="module-title">Execution Trace: One Sampling Tick</h1>
+          <p class="module-subtitle">Follow one iteration from wake-up to output. This is the most important execution path in the project.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Flowchart: Tick Lifecycle</h2>
+          <div class="diagram-box">
+            <div class="diagram-header">
+              <span class="diagram-label">Execution Trace</span>
+            </div>
+            <svg id="flow-svg" class="flowchart-svg" viewBox="0 0 760 860" aria-label="sampling flowchart"></svg>
+            <p class="footer-note">Click a node to inspect why that step exists.</p>
+          </div>
+          <div class="callout">
+            <span class="label">Aha</span>
+            <p>The loop is fault-tolerant by design: a collector can fail this tick and the renderer still emits a row with defaults or N/A in its columns.</p>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Code ↔ English: Conditional Baseline Math</h2>
+          <div class="translation-block">
+            <div class="translation-code">
+              <span class="translation-label">Code</span>
+<pre><code>if (cfg.show_disk && disk_read_snapshot(&disk_curr) == 0) {
+	if (disk_ready && disk_compute_stats(&disk_prev, &disk_curr, cfg.interval_sec, &disk_stats) == 0) {
+		disk_ptr = &disk_stats;
+	}
+	disk_prev = disk_curr;
+	disk_ready = true;
+}</code></pre>
+            </div>
+            <div class="translation-english">
+              <span class="translation-label">Plain English</span>
+              <p class="tl">Only work disk metrics when that feature is enabled and current snapshot read succeeded.</p>
+              <p class="tl">Rate computation runs only when we already have a previous snapshot (the warm-up condition).</p>
+              <p class="tl">If successful, publish this tick's disk stats to the renderer.</p>
+              <p class="tl">Always roll current into previous so the next iteration has fresh baseline data.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="module" id="module-4">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">04</span>
+          <h1 class="module-title">Data Model and Transformations</h1>
+          <p class="module-subtitle">Counters become deltas, deltas become rates, rates become formatted strings, and finally one row appears on stdout.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Data Flow Animation</h2>
+          <div class="data-flow">
+            <div class="df-track"></div>
+            <div class="df-node n1">/proc snapshots</div>
+            <div class="df-node n2">struct arrays</div>
+            <div class="df-node n3">delta + normalize</div>
+            <div class="df-node n4">rendered row</div>
+            <div class="df-pulse" aria-hidden="true"></div>
+          </div>
+          <p class="lead" style="margin-top: var(--space-4);">Each collector stores compact fixed-size arrays (MAX_DISKS, MAX_INTERFACES, MAX_PROCESSES). That keeps memory predictable and avoids per-tick heap churn.</p>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Code ↔ English: Memory Data Derivation</h2>
+          <div class="translation-block">
+            <div class="translation-code">
+              <span class="translation-label">Code</span>
+<pre><code>if (out->mem_total >= out->mem_available) {
+	out->mem_used = out->mem_total - out->mem_available;
+}
+if (out->swap_total >= out->swap_free) {
+	out->swap_used = out->swap_total - out->swap_free;
+}</code></pre>
+            </div>
+            <div class="translation-english">
+              <span class="translation-label">Plain English</span>
+              <p class="tl">Compute used RAM from total minus available, but only if values are sane.</p>
+              <p class="tl">Use the same guardrail for swap to prevent underflow when kernel counters are unexpected.</p>
+              <p class="tl">These two derived fields are what rendering code actually prints.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="module" id="module-5">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">05</span>
+          <h1 class="module-title">Execution Trace: Process Top-N Collector</h1>
+          <p class="module-subtitle">This path scans /proc PIDs, captures CPU+RSS per process, computes per-tick CPU share, sorts, and truncates.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Sequence Diagram: Process Scan Path</h2>
+          <div class="sequence">
+            <div class="seq-grid">
+              <div class="seq-head">Step</div><div class="seq-head">main.c</div><div class="seq-head">process.c</div><div class="seq-head">/proc</div>
+
+              <div>1</div><div class="seq-arrow">calls →</div><div class="seq-step">process_read_list(out, sort, top_n)</div><div></div>
+              <div>2</div><div></div><div class="seq-step">read_total_cpu_jiffies()</div><div class="seq-arrow">reads /proc/stat</div>
+              <div>3</div><div></div><div class="seq-step">opendir("/proc") + readdir loop</div><div class="seq-arrow">enumerates numeric dirs</div>
+              <div>4</div><div></div><div class="seq-step">read_process_stat(pid)</div><div class="seq-arrow">reads /proc/[pid]/stat</div>
+              <div>5</div><div></div><div class="seq-step">read_process_rss_bytes(pid)</div><div class="seq-arrow">reads /proc/[pid]/status</div>
+              <div>6</div><div></div><div class="seq-step">delta CPU%, clamp, qsort</div><div></div>
+              <div>7</div><div class="seq-arrow">returns top entries</div><div></div><div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Code ↔ English: CPU% from Jiffy Delta</h2>
+          <div class="translation-block">
+            <div class="translation-code">
+              <span class="translation-label">Code</span>
+<pre><code>if (total_delta > 0) {
+	dst->cpu_pct = 100.0 * ((double)proc_delta / (double)total_delta);
+} else {
+	dst->cpu_pct = 0.0;
+}
+dst->cpu_pct = clamp_double(dst->cpu_pct, 0.0, 100.0);</code></pre>
+            </div>
+            <div class="translation-english">
+              <span class="translation-label">Plain English</span>
+              <p class="tl">If total CPU moved during this tick, convert process jiffy share into percentage.</p>
+              <p class="tl">If total delta is zero, avoid division and treat usage as zero for safety.</p>
+              <p class="tl">Clamp final value into the legal UI range so formatter never receives nonsense.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="module" id="module-6">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">06</span>
+          <h1 class="module-title">Engineering Patterns Inside the Code</h1>
+          <p class="module-subtitle">The design leans on consistent patterns: parse-then-validate, snapshot-then-delta, aggregate-then-format, and graceful degradation.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Pattern Cards</h2>
+          <div class="pattern-cards">
+            <article class="pattern">
+              <h4>Input Contracts Early</h4>
+              <p>Helpers like parse_positive_int and parse_non_negative_int reject invalid CLI values before runtime loop starts.</p>
+            </article>
+            <article class="pattern">
+              <h4>Local Failure Containment</h4>
+              <p>Collectors can fail independently. Renderer checks null pointers and keeps printing usable rows.</p>
+            </article>
+            <article class="pattern">
+              <h4>Fixed-Capacity Buffers</h4>
+              <p>MAX_* constants provide deterministic memory usage and predictable upper bounds for per-tick work.</p>
+            </article>
+            <article class="pattern">
+              <h4>Single Render Gateway</h4>
+              <p>All presentation logic stays in display.c, making human and CSV mode switches cheap and centralized.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Code ↔ English: Human vs CSV Header Strategy</h2>
+          <div class="translation-block">
+            <div class="translation-code">
+              <span class="translation-label">Code</span>
+<pre><code>if (cfg->csv_mode) {
+	printf("timestamp");
+	if (cfg->show_cpu) {
+		printf(",cpu_usage_pct,cpu_user_pct,cpu_system_pct,cpu_idle_pct");
+	}
+	printf("\n");
+	return;
+}</code></pre>
+            </div>
+            <div class="translation-english">
+              <span class="translation-label">Plain English</span>
+              <p class="tl">When CSV mode is active, renderer emits machine-friendly column names first.</p>
+              <p class="tl">CPU headers are appended only when that feature is enabled, so output schema matches selected flags.</p>
+              <p class="tl">Early return cleanly separates CSV path from colored human-table path below.</p>
+            </div>
+          </div>
+          <div class="callout">
+            <span class="label">Aha</span>
+            <p>The display module is effectively a strategy switch keyed by one boolean: csv_mode. Everything else reuses shared stats structures.</p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="module" id="module-7">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">07</span>
+          <h1 class="module-title">Edge Cases and Failure Modes</h1>
+          <p class="module-subtitle">This module highlights where data can be missing or unstable, and how the code recovers without hard failure.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">What Can Go Wrong, and Where</h2>
+          <div class="cards">
+            <article class="card">
+              <h4>Process Exit Race</h4>
+              <p>/proc PID may disappear between directory scan and stat read; collector simply skips that process.</p>
+            </article>
+            <article class="card">
+              <h4>Counter Resets</h4>
+              <p>If current counters are less than previous, deltas are forced to zero to avoid negative rates.</p>
+            </article>
+            <article class="card">
+              <h4>Division by Zero</h4>
+              <p>When interval or total jiffy delta is zero, code guards and emits zero instead of crashing.</p>
+            </article>
+          </div>
+
+          <div class="callout" style="background: var(--color-error-light); border-color: #f0c7c4;">
+            <span class="label" style="color:#8c2c28;">Failure Containment</span>
+            <p style="color:#6f2320;">No collector failure path aborts the monitor loop. The design favors continuity over completeness for any single row.</p>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Code ↔ English: Defensive Disk Delta</h2>
+          <div class="translation-block">
+            <div class="translation-code">
+              <span class="translation-label">Code</span>
+<pre><code>read_delta = (c->sectors_read >= p->sectors_read) ? (c->sectors_read - p->sectors_read) : 0;
+write_delta = (c->sectors_written >= p->sectors_written) ? (c->sectors_written - p->sectors_written) : 0;
+
+dst = &out->items[out->count++];
+snprintf(dst->name, sizeof(dst->name), "%s", c->name);
+dst->read_bps = ((double)read_delta * DISK_SECTOR_SIZE) / (double)interval_sec;</code></pre>
+            </div>
+            <div class="translation-english">
+              <span class="translation-label">Plain English</span>
+              <p class="tl">Only trust monotonic growth; otherwise treat that metric as no-change this tick.</p>
+              <p class="tl">Write into the next output slot after both deltas are stable.</p>
+              <p class="tl">Convert sector delta into bytes/sec with fixed sector size and configured interval.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="module" id="module-8">
+      <div class="module-content">
+        <header class="module-header animate-in">
+          <span class="module-number">08</span>
+          <h1 class="module-title">Full-System Mental Model</h1>
+          <p class="module-subtitle">One loop, five collectors, one renderer, stable contracts. If you know where a value enters and where it is formatted, you can debug anything in this codebase.</p>
+        </header>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Call Graph: main.c as Conductor</h2>
+          <div class="diagram-box">
+            <div class="diagram-header"><span class="diagram-label">Call Graph</span></div>
+            <svg id="call-svg" viewBox="0 0 920 360" class="dependency-svg" aria-label="call graph"></svg>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">Final Mindmap + Next Investigation Paths</h2>
+          <div class="mindmap-container">
+            <div class="diagram-header"><span class="diagram-label">Big Picture</span></div>
+            <svg id="summary-mm-svg" class="mindmap-svg" viewBox="0 0 920 540"></svg>
+          </div>
+          <div class="two-col">
+            <div class="card">
+              <h4>If You Need to Add a Metric</h4>
+              <p>Create a new collector file with snapshot + compute functions, add fields to structs in syswatch.h, wire into main loop and display_print_row.</p>
+            </div>
+            <div class="card">
+              <h4>If You Need Better Throughput</h4>
+              <p>Profile process_read_list first: /proc scan and file opens dominate cost. Consider caching pid metadata or lower scan frequency.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const modules = Array.from(document.querySelectorAll('.module'));
+      const dots = Array.from(document.querySelectorAll('.nav-dot'));
+      const progressBar = document.querySelector('.progress-bar');
+      const tooltip = document.createElement('div');
+      tooltip.className = 'tooltip';
+      document.body.appendChild(tooltip);
+
+      let ticking = false;
+
+      function setStaggerIndexes() {
+        document.querySelectorAll('.stagger-children').forEach((parent) => {
+          Array.from(parent.children).forEach((child, i) => {
+            child.style.setProperty('--stagger-index', String(i));
+          });
+        });
+      }
+
+      function updateProgressBar() {
+        const scrollTop = window.scrollY || window.pageYOffset;
+        const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const progress = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
+        progressBar.style.width = progress + '%';
+        progressBar.setAttribute('aria-valuenow', progress.toFixed(1));
+      }
+
+      function updateActiveModule() {
+        const marker = window.innerHeight * 0.45;
+        let activeIndex = 0;
+        modules.forEach((module, i) => {
+          const r = module.getBoundingClientRect();
+          if (r.top <= marker && r.bottom >= marker) {
+            activeIndex = i;
+          }
+        });
+
+        dots.forEach((dot, i) => {
+          dot.classList.toggle('active', i === activeIndex);
+          dot.classList.toggle('visited', i < activeIndex);
+        });
+      }
+
+      function onScroll() {
+        if (ticking) {
+          return;
+        }
+        ticking = true;
+        requestAnimationFrame(() => {
+          updateProgressBar();
+          updateActiveModule();
+          ticking = false;
+        });
+      }
+
+      dots.forEach((dot) => {
+        dot.addEventListener('click', () => {
+          const id = dot.getAttribute('data-target');
+          const target = document.getElementById(id);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
+      });
+
+      function scrollModuleBy(delta) {
+        const current = dots.findIndex((d) => d.classList.contains('active'));
+        const next = Math.max(0, Math.min(modules.length - 1, current + delta));
+        modules[next].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+          return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          scrollModuleBy(1);
+          e.preventDefault();
+        }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          scrollModuleBy(-1);
+          e.preventDefault();
+        }
+      });
+
+      const io = new IntersectionObserver((entries, obs) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            obs.unobserve(entry.target);
+          }
+        });
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+
+      document.querySelectorAll('.animate-in').forEach((el) => io.observe(el));
+
+      function showTooltip(el) {
+        const text = el.getAttribute('data-tip');
+        if (!text) {
+          return;
+        }
+        tooltip.textContent = text;
+        const rect = el.getBoundingClientRect();
+        tooltip.style.left = Math.min(window.innerWidth - 300, Math.max(12, rect.left)) + 'px';
+        tooltip.style.top = Math.max(8, rect.bottom + 8) + 'px';
+        tooltip.classList.add('visible');
+      }
+
+      function hideTooltip() {
+        tooltip.classList.remove('visible');
+      }
+
+      document.querySelectorAll('.glossary').forEach((el) => {
+        el.setAttribute('tabindex', '0');
+        el.addEventListener('mouseenter', () => showTooltip(el));
+        el.addEventListener('mouseleave', hideTooltip);
+        el.addEventListener('focus', () => showTooltip(el));
+        el.addEventListener('blur', hideTooltip);
+        el.addEventListener('touchstart', (evt) => {
+          evt.preventDefault();
+          if (tooltip.classList.contains('visible')) {
+            hideTooltip();
+          } else {
+            showTooltip(el);
+          }
+        }, { passive: false });
+      });
+
+      function renderMindmap(svgId, infoId, data, ringA, ringB) {
+        const svg = document.getElementById(svgId);
+        if (!svg) {
+          return;
+        }
+        const W = 920;
+        const H = svgId === 'summary-mm-svg' ? 540 : 560;
+        const cx = W / 2;
+        const cy = H / 2;
+
+        let html = '<defs><filter id="mm-shadow"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.16"/></filter></defs>';
+        html += '<circle cx="' + cx + '" cy="' + cy + '" r="54" fill="var(--color-accent)" filter="url(#mm-shadow)"></circle>';
+        html += '<text x="' + cx + '" y="' + cy + '" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="13" font-weight="700" font-family="var(--font-display)">' + data.label + '</text>';
+
+        const branches = data.children;
+        const angleStep = (Math.PI * 2) / branches.length;
+
+        branches.forEach((branch, i) => {
+          const angle = i * angleStep - Math.PI / 2;
+          const bx = cx + ringA * Math.cos(angle);
+          const by = cy + ringA * Math.sin(angle);
+          const color = branch.color;
+
+          html += '<line x1="' + cx + '" y1="' + cy + '" x2="' + bx + '" y2="' + by + '" stroke="' + color + '" stroke-width="2.5" stroke-opacity="0.45"></line>';
+          html += '<circle class="mm-node" data-label="' + branch.label + '" data-desc="' + branch.desc + '" cx="' + bx + '" cy="' + by + '" r="34" fill="' + color + '" filter="url(#mm-shadow)" style="cursor:pointer"></circle>';
+          html += '<text x="' + bx + '" y="' + by + '" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="10" font-weight="700" font-family="var(--font-display)">' + branch.label + '</text>';
+
+          const leaves = branch.children || [];
+          const spread = Math.PI / 1.7;
+          const leafStep = leaves.length > 1 ? spread / (leaves.length - 1) : 0;
+          const start = angle - spread / 2;
+
+          leaves.forEach((leaf, j) => {
+            const la = leaves.length === 1 ? angle : start + j * leafStep;
+            const lx = bx + ringB * 0.58 * Math.cos(la);
+            const ly = by + ringB * 0.58 * Math.sin(la);
+            html += '<line x1="' + bx + '" y1="' + by + '" x2="' + lx + '" y2="' + ly + '" stroke="' + color + '" stroke-width="1.5" stroke-opacity="0.33" stroke-dasharray="4,3"></line>';
+            html += '<circle class="mm-node" data-label="' + leaf.label + '" data-desc="' + leaf.desc + '" cx="' + lx + '" cy="' + ly + '" r="26" fill="white" stroke="' + color + '" stroke-width="2" style="cursor:pointer"></circle>';
+            html += '<text x="' + lx + '" y="' + (ly - 1) + '" text-anchor="middle" dominant-baseline="middle" fill="var(--color-text)" font-size="8.5" font-weight="700" font-family="var(--font-mono)">' + leaf.label + '</text>';
+          });
+        });
+
+        svg.innerHTML = html;
+
+        const nodes = svg.querySelectorAll('.mm-node');
+        nodes.forEach((node) => {
+          node.addEventListener('mouseenter', () => { node.style.opacity = '0.86'; });
+          node.addEventListener('mouseleave', () => { node.style.opacity = '1'; });
+          node.addEventListener('click', () => {
+            if (!infoId) {
+              return;
+            }
+            const panel = document.getElementById(infoId);
+            if (!panel) {
+              return;
+            }
+            const title = node.getAttribute('data-label') || '';
+            const desc = node.getAttribute('data-desc') || '';
+            panel.innerHTML = '<span class="mm-info-title">' + title + '</span><span class="mm-info-desc">' + desc + '</span>';
+          });
+        });
+      }
+
+      const archData = {
+        label: 'syswatch',
+        children: [
+          {
+            label: 'main.c',
+            color: 'var(--color-actor-1)',
+            desc: 'Bootstraps config, loops forever (or N iterations), and coordinates every collector.',
+            children: [
+              { label: 'parse_args', desc: 'Validates CLI and toggles feature flags.' },
+              { label: 'sleep_interval', desc: 'Tick pacing with SIGINT-aware exit.' }
+            ]
+          },
+          {
+            label: 'collectors',
+            color: 'var(--color-actor-2)',
+            desc: 'Read kernel counters and compute point-in-time metric structs.',
+            children: [
+              { label: 'cpu/mem', desc: 'CPU delta percentages + memory used/available.' },
+              { label: 'disk/net', desc: 'Per-device throughput in bytes/sec.' },
+              { label: 'process', desc: 'Top-N by CPU or memory via /proc scan.' }
+            ]
+          },
+          {
+            label: 'display.c',
+            color: 'var(--color-actor-5)',
+            desc: 'Human and CSV rendering with optional detail columns.',
+            children: [
+              { label: 'header', desc: 'Print dynamic schema based on flags.' },
+              { label: 'row', desc: 'Format all active metrics in one line.' }
+            ]
+          },
+          {
+            label: 'utils.c',
+            color: 'var(--color-actor-4)',
+            desc: 'Shared parsing/formatting helpers used by multiple modules.',
+            children: [
+              { label: 'trim', desc: 'Whitespace cleanup for /proc line parsing.' },
+              { label: 'format', desc: 'Byte unit formatting + HH:MM:SS timestamp.' }
+            ]
+          }
+        ]
+      };
+
+      const summaryData = {
+        label: 'Mental Model',
+        children: [
+          {
+            label: 'Input',
+            color: 'var(--color-actor-2)',
+            desc: 'Linux /proc virtual files are the one data source.',
+            children: [
+              { label: '/proc/stat', desc: 'CPU + total jiffies baseline.' },
+              { label: '/proc/meminfo', desc: 'Memory and swap counters.' },
+              { label: '/proc/net/dev', desc: 'Interface byte counters.' }
+            ]
+          },
+          {
+            label: 'Transform',
+            color: 'var(--color-actor-1)',
+            desc: 'Snapshots are differenced into rates and percentages.',
+            children: [
+              { label: 'delta', desc: 'curr - prev with underflow guardrails.' },
+              { label: 'normalize', desc: 'Divide by interval and clamp ranges.' }
+            ]
+          },
+          {
+            label: 'Output',
+            color: 'var(--color-actor-5)',
+            desc: 'A single renderer writes either machine or human format.',
+            children: [
+              { label: 'CSV', desc: 'Pipe-friendly metrics stream.' },
+              { label: 'Human', desc: 'Readable table with optional colors.' }
+            ]
+          },
+          {
+            label: 'Control',
+            color: 'var(--color-actor-4)',
+            desc: 'Loop cadence, stop conditions, and feature toggles.',
+            children: [
+              { label: 'flags', desc: 'Select enabled collectors/columns.' },
+              { label: 'SIGINT', desc: 'Clean stop via shared atomic flag.' }
+            ]
+          }
+        ]
+      };
+
+      renderMindmap('mindmap-svg', 'mm-info', archData, 170, 300);
+      renderMindmap('summary-mm-svg', null, summaryData, 165, 285);
+
+      let mmScale = 1;
+      const mmSvg = document.getElementById('mindmap-svg');
+      const zoomInBtn = document.getElementById('mm-zoom-in');
+      const zoomOutBtn = document.getElementById('mm-zoom-out');
+      const resetBtn = document.getElementById('mm-reset');
+
+      if (zoomInBtn && zoomOutBtn && resetBtn && mmSvg) {
+        zoomInBtn.addEventListener('click', () => {
+          mmScale *= 1.12;
+          mmSvg.style.transform = 'scale(' + mmScale.toFixed(2) + ')';
+        });
+        zoomOutBtn.addEventListener('click', () => {
+          mmScale *= 0.9;
+          mmSvg.style.transform = 'scale(' + mmScale.toFixed(2) + ')';
+        });
+        resetBtn.addEventListener('click', () => {
+          mmScale = 1;
+          mmSvg.style.transform = 'scale(1)';
+        });
+      }
+
+      function renderDependencyGraph() {
+        const svg = document.getElementById('dep-svg');
+        if (!svg) {
+          return;
+        }
+
+        const nodes = [
+          { id: 'h', x: 460, y: 38, w: 120, h: 34, label: 'syswatch.h', color: '#ffffff' },
+          { id: 'm', x: 460, y: 106, w: 120, h: 36, label: 'main.c', color: '#faebe5' },
+          { id: 'd', x: 730, y: 184, w: 130, h: 36, label: 'display.c', color: '#e7f3eb' },
+          { id: 'u', x: 460, y: 282, w: 120, h: 36, label: 'utils.c', color: '#e5f0f4' },
+          { id: 'c', x: 210, y: 164, w: 120, h: 36, label: 'cpu.c', color: '#f7f0ff' },
+          { id: 'mm', x: 210, y: 220, w: 120, h: 36, label: 'memory.c', color: '#f7f0ff' },
+          { id: 'dk', x: 210, y: 276, w: 120, h: 36, label: 'disk.c', color: '#f7f0ff' },
+          { id: 'n', x: 210, y: 332, w: 120, h: 36, label: 'network.c', color: '#f7f0ff' },
+          { id: 'p', x: 210, y: 388, w: 120, h: 36, label: 'process.c', color: '#f7f0ff' }
+        ];
+
+        const edges = [
+          ['h', 'm'], ['h', 'd'], ['h', 'u'], ['h', 'c'], ['h', 'mm'], ['h', 'dk'], ['h', 'n'], ['h', 'p'],
+          ['m', 'c'], ['m', 'mm'], ['m', 'dk'], ['m', 'n'], ['m', 'p'], ['m', 'd'],
+          ['n', 'u'], ['p', 'u']
+        ];
+
+        function getNode(id) {
+          return nodes.find((n) => n.id === id);
+        }
+
+        let html = '<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#b9b2a9"></path></marker></defs>';
+
+        edges.forEach(([a, b]) => {
+          const na = getNode(a);
+          const nb = getNode(b);
+          html += '<line x1="' + na.x + '" y1="' + (na.y + na.h / 2) + '" x2="' + nb.x + '" y2="' + (nb.y + nb.h / 2) + '" stroke="#b9b2a9" stroke-width="1.5" marker-end="url(#arrow)" stroke-opacity="0.7"></line>';
+        });
+
+        nodes.forEach((n) => {
+          html += '<rect x="' + (n.x - n.w / 2) + '" y="' + (n.y - n.h / 2) + '" width="' + n.w + '" height="' + n.h + '" rx="10" ry="10" fill="' + n.color + '" stroke="#d9d3ca"></rect>';
+          html += '<text x="' + n.x + '" y="' + (n.y + 4) + '" text-anchor="middle" font-size="12" font-weight="600" font-family="var(--font-mono)" fill="#36322d">' + n.label + '</text>';
+        });
+
+        svg.innerHTML = html;
+      }
+
+      function renderFlowchart() {
+        const svg = document.getElementById('flow-svg');
+        if (!svg) {
+          return;
+        }
+
+        const nodes = [
+          { id: 'f1', x: 380, y: 52, type: 'event', label: 'Loop tick starts', detail: 'while condition passed in main.c' },
+          { id: 'f2', x: 380, y: 146, type: 'fn', label: 'sleep_interval()', detail: 'waits cfg.interval_sec unless first row was immediate' },
+          { id: 'f3', x: 380, y: 242, type: 'fn', label: 'cpu_read_snapshot', detail: 'reads /proc/stat counters' },
+          { id: 'f4', x: 380, y: 338, type: 'fn', label: 'disk/net/process reads', detail: 'each collector independently attempts current tick reads' },
+          { id: 'f5', x: 380, y: 434, type: 'decision', label: 'baseline ready?', detail: 'if previous snapshot exists, compute deltas; else warm-up only' },
+          { id: 'f6', x: 220, y: 542, type: 'fn', label: 'stats ptr stays NULL', detail: 'renderer prints N/A or zeros for that metric' },
+          { id: 'f7', x: 540, y: 542, type: 'fn', label: 'compute_*_stats', detail: 'convert snapshot deltas to percentages/rates' },
+          { id: 'f8', x: 380, y: 660, type: 'fn', label: 'display_print_row', detail: 'single output line in selected mode' },
+          { id: 'f9', x: 380, y: 760, type: 'event', label: 'rows++ and repeat', detail: 'loop exits only on SIGINT or iterations limit' }
+        ];
+
+        const edges = [
+          ['f1', 'f2'], ['f2', 'f3'], ['f3', 'f4'], ['f4', 'f5'], ['f5', 'f6'], ['f5', 'f7'], ['f6', 'f8'], ['f7', 'f8'], ['f8', 'f9']
+        ];
+
+        function styleFor(type) {
+          if (type === 'event') {
+            return { fill: '#e5f0f4', stroke: '#8eb8cb' };
+          }
+          if (type === 'decision') {
+            return { fill: '#faebe5', stroke: '#d4a292' };
+          }
+          return { fill: '#fefcf9', stroke: '#d7d1c7' };
+        }
+
+        let html = '<defs><marker id="farr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#9b9389"></path></marker></defs>';
+
+        edges.forEach(([a, b]) => {
+          const na = nodes.find((n) => n.id === a);
+          const nb = nodes.find((n) => n.id === b);
+          html += '<line x1="' + na.x + '" y1="' + (na.y + 22) + '" x2="' + nb.x + '" y2="' + (nb.y - 22) + '" stroke="#9b9389" stroke-width="1.6" marker-end="url(#farr)" />';
+        });
+
+        nodes.forEach((n) => {
+          const s = styleFor(n.type);
+          if (n.type === 'decision') {
+            const d = 'M ' + n.x + ' ' + (n.y - 30) + ' L ' + (n.x + 72) + ' ' + n.y + ' L ' + n.x + ' ' + (n.y + 30) + ' L ' + (n.x - 72) + ' ' + n.y + ' Z';
+            html += '<path class="flow-node" data-detail="' + n.detail + '" d="' + d + '" fill="' + s.fill + '" stroke="' + s.stroke + '" stroke-width="1.5" style="cursor:pointer"></path>';
+          } else {
+            html += '<rect class="flow-node" data-detail="' + n.detail + '" x="' + (n.x - 110) + '" y="' + (n.y - 24) + '" width="220" height="48" rx="10" fill="' + s.fill + '" stroke="' + s.stroke + '" stroke-width="1.5" style="cursor:pointer"></rect>';
+          }
+          html += '<text x="' + n.x + '" y="' + (n.y + 4) + '" text-anchor="middle" font-size="12" font-family="var(--font-mono)" fill="#37322e">' + n.label + '</text>';
+        });
+
+        svg.innerHTML = html;
+
+        const detailLine = document.querySelector('#module-3 .footer-note');
+        svg.querySelectorAll('.flow-node').forEach((node) => {
+          node.addEventListener('mouseenter', () => { node.style.opacity = '0.86'; });
+          node.addEventListener('mouseleave', () => { node.style.opacity = '1'; });
+          node.addEventListener('click', () => {
+            if (detailLine) {
+              detailLine.textContent = node.getAttribute('data-detail') || '';
+            }
+          });
+        });
+      }
+
+      function renderCallGraph() {
+        const svg = document.getElementById('call-svg');
+        if (!svg) {
+          return;
+        }
+
+        const boxes = [
+          { x: 460, y: 56, w: 170, h: 42, label: 'main()' },
+          { x: 160, y: 138, w: 190, h: 42, label: 'parse_args + defaults' },
+          { x: 460, y: 138, w: 180, h: 42, label: 'collector dispatch' },
+          { x: 760, y: 138, w: 160, h: 42, label: 'display_print_header' },
+          { x: 160, y: 228, w: 180, h: 42, label: 'cpu/memory/disk/net' },
+          { x: 460, y: 228, w: 180, h: 42, label: 'process_read_list' },
+          { x: 760, y: 228, w: 180, h: 42, label: 'display_print_row' },
+          { x: 460, y: 312, w: 160, h: 38, label: 'stdout + fflush' }
+        ];
+
+        const edges = [
+          [0,1], [0,2], [0,3], [2,4], [2,5], [4,6], [5,6], [6,7]
+        ];
+
+        let html = '<defs><marker id="car" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#948d84"></path></marker></defs>';
+
+        edges.forEach(([a,b]) => {
+          const A = boxes[a];
+          const B = boxes[b];
+          html += '<line x1="' + A.x + '" y1="' + (A.y + A.h/2) + '" x2="' + B.x + '" y2="' + (B.y - B.h/2) + '" stroke="#948d84" stroke-width="1.5" marker-end="url(#car)"></line>';
+        });
+
+        boxes.forEach((b, i) => {
+          const fill = i === 0 ? '#faebe5' : (i >= 6 ? '#e7f3eb' : '#fff');
+          html += '<rect x="' + (b.x - b.w/2) + '" y="' + (b.y - b.h/2) + '" width="' + b.w + '" height="' + b.h + '" rx="11" fill="' + fill + '" stroke="#d7d1c7"></rect>';
+          html += '<text x="' + b.x + '" y="' + (b.y + 4) + '" text-anchor="middle" font-size="12" font-weight="600" font-family="var(--font-mono)" fill="#37322e">' + b.label + '</text>';
+        });
+
+        svg.innerHTML = html;
+      }
+
+      renderDependencyGraph();
+      renderFlowchart();
+      renderCallGraph();
+
+      setStaggerIndexes();
+      updateProgressBar();
+      updateActiveModule();
+
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', onScroll, { passive: true });
+    })();
+  </script>
+</body>
+</html>
