@@ -12,3 +12,6 @@ core.*
 *~
 *.swp
 *.swo
+
+# Copilot skill artifacts
+.github/skills/
