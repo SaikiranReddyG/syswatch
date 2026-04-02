@@ -1,1 +1,0 @@
-See `README.md` for full project documentation and current implementation details.

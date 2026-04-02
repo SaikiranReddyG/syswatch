@@ -10,6 +10,7 @@ Features:
 - Network throughput from `/proc/net/dev` (rx/tx bytes delta -> bytes/sec).
 - Optional top process summary from `/proc/[pid]/stat` and `/proc/[pid]/status`.
 - Human-readable table mode and CSV mode for piping to other tools.
+- Includes `syswatch-course.html` as a project learning artifact for walkthrough-style documentation.
 
 ## Build
 
