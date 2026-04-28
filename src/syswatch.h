@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <pthread.h>
+#include <time.h>
 
 #define DEFAULT_REFRESH_INTERVAL 1
 #define DEFAULT_ITERATIONS 0
@@ -13,6 +15,9 @@
 #define MAX_CORES 256
 #define MAX_PROCESSES 2048
 
+#define MAX_QUEUE_DEPTH 10000
+#define MAX_EVENT_SIZE 4096
+
 #define COLW_TIME 8
 #define COLW_SMALL 7
 #define COLW_MEDIUM 10
@@ -21,6 +26,41 @@ typedef enum {
 	PROCESS_SORT_CPU = 0,
 	PROCESS_SORT_MEM = 1
 } process_sort_mode_t;
+
+/* Per-collector warm-up state */
+typedef struct {
+	bool has_previous_sample;
+	time_t last_sample_time_mono;
+	unsigned long long cpu_total_prev;
+	unsigned long long disk_total_sectors_prev;
+	unsigned long long net_total_bytes_prev;
+} collector_state_t;
+
+/* Event queue entry (producer-consumer bounded buffer) */
+typedef struct {
+	char json_data[MAX_EVENT_SIZE];
+	size_t json_len;
+	struct timespec enqueue_time;
+} event_queue_entry_t;
+
+/* Bounded event queue with drop-oldest policy */
+typedef struct {
+	event_queue_entry_t entries[MAX_QUEUE_DEPTH];
+	int head;
+	int tail;
+	int count;
+	pthread_mutex_t lock;
+	pthread_cond_t not_empty;
+	unsigned long long dropped_count;
+	unsigned long long emitted_count;
+} event_queue_t;
+
+/* Self-metrics for syswatch */
+typedef struct {
+	unsigned long long buffer_depth;
+	unsigned long long events_dropped_total;
+	unsigned long long events_emitted_total;
+} internal_metrics_t;
 
 typedef struct {
 	int interval_sec;
@@ -55,6 +95,11 @@ typedef struct {
 	char log_path[256];
 
 	char host_override[128];
+	
+	/* Thread-safe event queue and self-metrics */
+	event_queue_t *event_queue;
+	internal_metrics_t internal_metrics;
+	collector_state_t collector_state;
 } syswatch_config_t;
 
 typedef struct {
@@ -194,5 +239,19 @@ int output_flush(void);
 void output_shutdown(void);
 int output_get_mode(void);
 void json_escape_string(const char *input, char *output, size_t output_size);
+
+/* Event queue (producer-consumer) */
+event_queue_t *queue_create(void);
+void queue_destroy(event_queue_t *q);
+int queue_enqueue(event_queue_t *q, const char *json_data, size_t len);
+int queue_dequeue_batch(event_queue_t *q, event_queue_entry_t *out, int max_count, int *out_count);
+int queue_size(event_queue_t *q);
+unsigned long long queue_dropped_count(event_queue_t *q);
+
+/* Clock utilities (CLOCK_MONOTONIC for deltas, CLOCK_REALTIME for timestamps) */
+int get_mono_time(struct timespec *ts);
+int get_wall_time(struct timespec *ts);
+void format_rfc3339(struct timespec *ts, char *buf, size_t len);
+double timespec_delta_seconds(struct timespec *prev, struct timespec *curr);
 
 #endif

@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "syswatch.h"
 
 #include <ctype.h>
@@ -133,3 +135,80 @@ void format_timestamp(char *buf, size_t len)
 
 	strftime(buf, len, "%H:%M:%S", tm_now);
 }
+
+/* Get monotonic time (for interval calculations, immune to clock adjustments) */
+int get_mono_time(struct timespec *ts)
+{
+	if (!ts) {
+		return -1;
+	}
+	if (clock_gettime(CLOCK_MONOTONIC, ts) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+/* Get wall-clock time (for timestamps in events) */
+int get_wall_time(struct timespec *ts)
+{
+	if (!ts) {
+		return -1;
+	}
+	if (clock_gettime(CLOCK_REALTIME, ts) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+/* Format timespec as RFC 3339 with timezone offset */
+void format_rfc3339(struct timespec *ts, char *buf, size_t len)
+{
+	struct tm *tm_now;
+	char iso_buf[32];
+	char tz_buf[16];
+	time_t sec;
+
+	if (!buf || len == 0) {
+		return;
+	}
+
+	if (!ts) {
+		snprintf(buf, len, "1970-01-01T00:00:00Z");
+		return;
+	}
+
+	sec = ts->tv_sec;
+	tm_now = localtime(&sec);
+	if (!tm_now) {
+		snprintf(buf, len, "1970-01-01T00:00:00Z");
+		return;
+	}
+
+	/* Format as ISO 8601: YYYY-MM-DDTHH:MM:SS.mmm+HH:MM */
+	strftime(iso_buf, sizeof(iso_buf), "%Y-%m-%dT%H:%M:%S", tm_now);
+
+	/* Timezone offset (use __tm_gmtoff on Linux glibc) */
+	long offset = tm_now->__tm_gmtoff;
+	int hours = offset / 3600;
+	int minutes = (labs(offset) % 3600) / 60;
+	snprintf(tz_buf, sizeof(tz_buf), "%+03d:%02d", hours, minutes);
+
+	/* Combine with nanoseconds to milliseconds */
+	unsigned int msec = ts->tv_nsec / 1000000;
+	snprintf(buf, len, "%s.%03u%s", iso_buf, msec, tz_buf);
+}
+
+/* Calculate delta between two timespec values in seconds */
+double timespec_delta_seconds(struct timespec *prev, struct timespec *curr)
+{
+	if (!prev || !curr) {
+		return 0.0;
+	}
+
+	long sec_diff = curr->tv_sec - prev->tv_sec;
+	long nsec_diff = curr->tv_nsec - prev->tv_nsec;
+
+	double delta = (double)sec_diff + (double)nsec_diff / 1e9;
+	return delta > 0.0 ? delta : 0.0;
+}
+

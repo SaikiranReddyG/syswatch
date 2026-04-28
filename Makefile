@@ -8,10 +8,10 @@ CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)
 CURL_LIBS := $(shell pkg-config --libs libcurl 2>/dev/null)
 
 CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O2 $(CURL_CFLAGS)
-LDFLAGS := $(CURL_LIBS)
+LDFLAGS := $(CURL_LIBS) -lpthread
 
 DEBUG_CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined $(CURL_CFLAGS)
-DEBUG_LDFLAGS := -fsanitize=address,undefined $(CURL_LIBS)
+DEBUG_LDFLAGS := -fsanitize=address,undefined $(CURL_LIBS) -lpthread
 
 .PHONY: all debug clean
 
