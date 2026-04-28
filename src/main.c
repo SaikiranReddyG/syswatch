@@ -188,9 +188,13 @@ static void *collector_thread(void *arg)
 	}
 	get_mono_time(&last_mono);
 
+	int current_interval = cfg->interval_sec;
+	bool high_res_active = false;
+	double high_res_remaining = 0.0;
+
 	while (!g_stop && (cfg->iterations == 0 || rows < cfg->iterations)) {
 		/* Sleep for configured interval */
-		if (sleep(cfg->interval_sec) != 0 && g_stop) {
+		if (sleep(current_interval) != 0 && g_stop) {
 			break;
 		}
 
@@ -346,6 +350,35 @@ static void *collector_thread(void *arg)
 					rfc_ts, host_json, cfg->internal_metrics.buffer_depth, cfg->internal_metrics.events_dropped_total, cfg->internal_metrics.events_emitted_total);
 				queue_enqueue(cfg->event_queue, json, strlen(json));
 				cfg->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
+			}
+
+			/* Evaluate Adaptive Sampling */
+			bool is_interesting = false;
+			if (cpu_ptr && cpu_ptr->usage_pct > 80.0) is_interesting = true;
+			if (mem_ptr && mem_ptr->mem_total > 0 && ((double)mem_ptr->mem_used / (double)mem_ptr->mem_total) > 0.90) is_interesting = true;
+
+			if (is_interesting) {
+				high_res_remaining = 30.0;
+				if (!high_res_active && cfg->interval_sec > 1) {
+					high_res_active = true;
+					current_interval = 1;
+					char json[1024];
+					snprintf(json, sizeof(json),
+						"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.lifecycle\",\"severity\":\"warn\",\"payload\":{\"state\":\"high_resolution_mode\",\"reason\":\"load_threshold_exceeded\"}}",
+						rfc_ts, host_json);
+					queue_enqueue(cfg->event_queue, json, strlen(json));
+				}
+			} else if (high_res_active) {
+				high_res_remaining -= delta_sec;
+				if (high_res_remaining <= 0.0) {
+					high_res_active = false;
+					current_interval = cfg->interval_sec;
+					char json[1024];
+					snprintf(json, sizeof(json),
+						"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.lifecycle\",\"severity\":\"info\",\"payload\":{\"state\":\"normal_resolution_mode\",\"reason\":\"load_normalized\"}}",
+						rfc_ts, host_json);
+					queue_enqueue(cfg->event_queue, json, strlen(json));
+				}
 			}
 		}
 
