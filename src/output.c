@@ -319,6 +319,7 @@ int output_init(const syswatch_config_t *cfg, char **err)
 
 	if (cfg->output_type[0] == '\0' || strcmp(cfg->output_type, "stdout") == 0) {
 		g_output.mode = OUTPUT_STDOUT;
+		fprintf(stderr, "syswatch: output_init selected stdout\n");
 		return 0;
 	}
 
@@ -342,6 +343,7 @@ int output_init(const syswatch_config_t *cfg, char **err)
 
 		g_output.mode = OUTPUT_FILE;
 		snprintf(g_output.output_path, sizeof(g_output.output_path), "%s", cfg->output_path);
+		fprintf(stderr, "syswatch: output_init selected file -> %s\n", g_output.output_path);
 		return 0;
 	}
 
@@ -363,6 +365,7 @@ int output_init(const syswatch_config_t *cfg, char **err)
 		g_output.mode = OUTPUT_HTTP_POST;
 		g_output.curl_ready = true;
 		snprintf(g_output.output_url, sizeof(g_output.output_url), "%s", cfg->output_url);
+		fprintf(stderr, "syswatch: output_init selected http_post -> %s\n", g_output.output_url);
 		batch_reset();
 		if (!g_output.batch_items) {
 			if (err) {
@@ -383,8 +386,14 @@ int output_init(const syswatch_config_t *cfg, char **err)
 	return -1;
 }
 
+int output_get_mode(void)
+{
+	return (int)g_output.mode;
+}
+
 int output_emit_event(const char *json_line)
 {
+	fprintf(stderr, "syswatch: output_emit_event mode=%d\n", g_output.mode);
 	char *copy;
 
 	if (!json_line) {

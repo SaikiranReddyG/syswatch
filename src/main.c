@@ -69,8 +69,10 @@ static int sleep_interval(int seconds)
 	}
 
 	/* Flush and shutdown output cleanly */
+	/* Flush output buffers but keep the backend active (don't shutdown),
+	 * so stateful backends like http_post retain their configuration
+	 * across sleep intervals. */
 	output_flush();
-	output_shutdown();
 
 	return 0;
 }
@@ -311,6 +313,25 @@ int main(int argc, char **argv)
 		if (output_init(&cfg, &oerr) != 0) {
 			fprintf(stderr, "output init failed: %s\n", oerr ? oerr : "unknown");
 			return 4;
+		}
+
+		/* Instrumentation: report selected output backend */
+		{
+			int mode = output_get_mode();
+			switch (mode) {
+			case 0:
+				fprintf(stderr, "syswatch: runtime backend=stdout\n");
+				break;
+			case 1:
+				fprintf(stderr, "syswatch: runtime backend=file\n");
+				break;
+			case 2:
+				fprintf(stderr, "syswatch: runtime backend=http_post\n");
+				break;
+			default:
+				fprintf(stderr, "syswatch: runtime backend=unknown(%d)\n", mode);
+				break;
+			}
 		}
 	}
 

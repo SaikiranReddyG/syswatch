@@ -192,6 +192,7 @@ int output_init(const syswatch_config_t *cfg, char **err);
 int output_emit_event(const char *json_line);
 int output_flush(void);
 void output_shutdown(void);
+int output_get_mode(void);
 void json_escape_string(const char *input, char *output, size_t output_size);
 
 #endif
