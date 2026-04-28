@@ -489,5 +489,8 @@ int main(int argc, char **argv)
 		need_sleep_before_row = true;
 	}
 
+	/* Ensure buffered outputs are flushed on normal exit and signal stop. */
+	output_shutdown();
+
 	return 0;
 }
