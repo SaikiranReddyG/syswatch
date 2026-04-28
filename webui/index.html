@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SysWatch Live Dashboard</title>
+  <style>
+    :root {
+      --bg-0: #0d1b2a;
+      --bg-1: #1b263b;
+      --bg-2: #415a77;
+      --card: rgba(255, 255, 255, 0.09);
+      --line: rgba(255, 255, 255, 0.18);
+      --text: #e0e1dd;
+      --muted: #c7d1da;
+      --accent: #ffb703;
+      --good: #80ed99;
+      --warn: #ffd166;
+      --bad: #ff6b6b;
+      --shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 500px at -20% -10%, rgba(255, 183, 3, 0.22), transparent 60%),
+        radial-gradient(1200px 700px at 110% 120%, rgba(72, 149, 239, 0.24), transparent 60%),
+        linear-gradient(145deg, var(--bg-0), var(--bg-1) 45%, var(--bg-2));
+      overflow-x: hidden;
+    }
+
+    .shell {
+      width: min(1200px, 94vw);
+      margin: 28px auto;
+      display: grid;
+      gap: 14px;
+      animation: intro 500ms ease-out;
+    }
+
+    @keyframes intro {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hero {
+      background: linear-gradient(130deg, rgba(255,255,255,0.1), rgba(255,255,255,0.04));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      letter-spacing: 0.4px;
+      font-size: clamp(1.4rem, 2.5vw, 2rem);
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .status-panel {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(10, 18, 32, 0.35);
+      min-height: 76px;
+    }
+
+    .pill .k {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-bottom: 6px;
+    }
+
+    .pill .v {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(280px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 14px;
+      min-height: 140px;
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: #fff;
+    }
+
+    .rows {
+      display: grid;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px dashed rgba(255,255,255,0.15);
+      padding-bottom: 6px;
+    }
+
+    .label { color: var(--muted); }
+    .value { color: #fff; font-weight: 600; }
+
+    .history {
+      max-height: 260px;
+      overflow: auto;
+      font-family: "JetBrains Mono", "Cascadia Code", monospace;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      background: rgba(5, 10, 20, 0.45);
+      border-radius: 10px;
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    button.action {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button.action:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .ok { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>SysWatch Live Dashboard</h1>
+        <p>
+          Real-time system telemetry fed by <strong>syswatch</strong> via <code>output.type: http_post</code>.
+          This view polls the local Web UI API every second.
+        </p>
+      </div>
+      <div class="status-panel">
+        <div class="pill"><div class="k">Service</div><div class="v" id="svcStatus">Checking...</div></div>
+        <div class="pill"><div class="k">Uptime</div><div class="v" id="svcUptime">-</div></div>
+        <div class="pill"><div class="k">Last Event Age</div><div class="v" id="lastEventAge">-</div></div>
+        <div class="pill"><div class="k">Events Ingested</div><div class="v" id="eventsIngested">0</div></div>
+        <div class="pill"><div class="k">History Size</div><div class="v" id="historySize">0</div></div>
+        <div class="pill"><div class="k">Seen Types</div><div class="v" id="seenTypes">0</div></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>CPU</h2>
+        <div class="rows" id="cpuBox"></div>
+      </article>
+
+      <article class="card">
+        <h2>Memory</h2>
+        <div class="rows" id="memoryBox"></div>
+      </article>
+
+      <article class="card">
+        <h2>Disk</h2>
+        <div class="rows" id="diskBox"></div>
+      </article>
+
+      <article class="card">
+        <h2>Network</h2>
+        <div class="rows" id="networkBox"></div>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Recent Events</h2>
+      <div class="history" id="historyBox">Waiting for data...</div>
+      <div class="hint" id="emptyHint">Tip: run syswatch with http_post pointing to this server, then watch events stream here.</div>
+      <div class="actions">
+        <button class="action" id="seedBtn">Inject Demo Events</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    function fmtNum(v, digits = 2) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(digits) : "-";
+    }
+
+    function row(label, value) {
+      return `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`;
+    }
+
+    function setHealth(h) {
+      const ok = h && h.status === "ok";
+      const statusEl = document.getElementById("svcStatus");
+      statusEl.textContent = ok ? "Online" : "Offline";
+      statusEl.className = ok ? "v ok" : "v bad";
+      document.getElementById("svcUptime").textContent = ok ? `${fmtNum(h.uptime_seconds, 1)}s` : "-";
+      document.getElementById("eventsIngested").textContent = ok ? String(h.received_events ?? 0) : "0";
+      document.getElementById("historySize").textContent = ok ? String(h.history_size ?? 0) : "0";
+      const age = h && h.last_event_age_seconds;
+      document.getElementById("lastEventAge").textContent = Number.isFinite(age) ? `${fmtNum(age, 1)}s` : "none";
+      document.getElementById("seenTypes").textContent = ok ? String((h.seen_event_types || []).length) : "0";
+
+      const expected = new Set((h && h.expected_event_types) || []);
+      const seen = new Set((h && h.seen_event_types) || []);
+      const missing = [...expected].filter((k) => !seen.has(k));
+      const hint = document.getElementById("emptyHint");
+      if ((h.received_events || 0) === 0) {
+        hint.textContent = "No events ingested yet. Ensure syswatch output.url points to this server /events endpoint.";
+      } else if (missing.length > 0) {
+        hint.textContent = `Missing metric types: ${missing.join(", ")}`;
+      } else {
+        hint.textContent = "All expected metric types received.";
+      }
+    }
+
+    function setMetricBox(id, payloadRows) {
+      const el = document.getElementById(id);
+      el.innerHTML = payloadRows.length ? payloadRows.join("") : row("status", "waiting...");
+    }
+
+    function renderMetrics(latest) {
+      const events = (latest && latest.events_by_type) || {};
+      const cpu = events["system.metrics.cpu"]?.payload || null;
+      const mem = events["system.metrics.memory"]?.payload || null;
+      const disk = events["system.metrics.disk"]?.payload || null;
+      const net = events["system.metrics.network"]?.payload || null;
+
+      setMetricBox("cpuBox", cpu ? [
+        row("usage", `${fmtNum(cpu.usage_pct)} %`),
+        row("user", `${fmtNum(cpu.user_pct)} %`),
+        row("system", `${fmtNum(cpu.system_pct)} %`),
+        row("idle", `${fmtNum(cpu.idle_pct)} %`),
+      ] : []);
+
+      setMetricBox("memoryBox", mem ? [
+        row("used", String(mem.mem_used_bytes ?? "-")),
+        row("available", String(mem.mem_available_bytes ?? "-")),
+        row("swap used", String(mem.swap_used_bytes ?? "-")),
+      ] : []);
+
+      setMetricBox("diskBox", disk ? [
+        row("read", `${fmtNum(disk.read_bps)} B/s`),
+        row("write", `${fmtNum(disk.write_bps)} B/s`),
+      ] : []);
+
+      setMetricBox("networkBox", net ? [
+        row("rx", `${fmtNum(net.rx_bps)} B/s`),
+        row("tx", `${fmtNum(net.tx_bps)} B/s`),
+      ] : []);
+    }
+
+    function renderHistory(events) {
+      const box = document.getElementById("historyBox");
+      if (!events || !events.length) {
+        box.textContent = "No events yet...";
+        return;
+      }
+      const last = events.slice(-30);
+      box.textContent = last.map((e) => JSON.stringify(e)).join("\n");
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function refresh() {
+      try {
+        const [healthRes, latestRes, historyRes] = await Promise.all([
+          fetch("/api/health", { cache: "no-store" }),
+          fetch("/api/latest", { cache: "no-store" }),
+          fetch("/api/history?limit=60", { cache: "no-store" }),
+        ]);
+
+        const [health, latest, history] = await Promise.all([
+          healthRes.json(),
+          latestRes.json(),
+          historyRes.json(),
+        ]);
+
+        setHealth(health);
+        renderMetrics(latest);
+        renderHistory(history.events || []);
+      } catch (err) {
+        setHealth({ status: "down" });
+      }
+    }
+
+    async function seedDemo() {
+      try {
+        await fetch("/api/demo-seed", { method: "POST" });
+        await refresh();
+      } catch (err) {
+        // Keep UI responsive even if seed fails.
+      }
+    }
+
+    document.getElementById("seedBtn").addEventListener("click", seedDemo);
+
+    refresh();
+    setInterval(refresh, 1000);
+  </script>
+</body>
+</html>

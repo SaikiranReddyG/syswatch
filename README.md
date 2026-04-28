@@ -34,6 +34,17 @@ make
 - `file`: append-only JSONL file
 - `http_post`: POST batches of events as a JSON array to a configured URL
 
+**Web UI**
+- A local dashboard is available under `webui/`.
+- Start it with:
+
+```bash
+python3 webui/server.py --host 127.0.0.1 --port 8780
+```
+
+- Open `http://127.0.0.1:8780` and point syswatch `output.url` to `http://127.0.0.1:8780/events`.
+- More details: `webui/README.md`
+
 **Smoke test**
 Run the included smoke script (requires a working build):
 

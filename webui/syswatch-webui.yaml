@@ -1,0 +1,26 @@
+config_version: "1.0"
+
+poll_interval_seconds: 1
+
+collect:
+  cpu: true
+  memory: true
+  disk: true
+  network: true
+  load: true
+  processes: false
+
+output:
+  type: http_post
+  url: "http://127.0.0.1:8780/events"
+  batch_size: 2
+  batch_interval_seconds: 1
+  retry_max_attempts: 2
+  retry_backoff_seconds: 1
+
+log:
+  level: info
+  destination: stderr
+  path: "/tmp/syswatch-webui.log"
+
+host_override: ""
