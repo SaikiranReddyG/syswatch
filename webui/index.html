@@ -138,7 +138,8 @@
 
     .history {
       max-height: 260px;
-      overflow: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
       font-family: "JetBrains Mono", "Cascadia Code", monospace;
       font-size: 0.82rem;
       line-height: 1.4;
@@ -146,6 +147,9 @@
       border-radius: 10px;
       padding: 10px;
       border: 1px solid rgba(255,255,255,0.12);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      word-break: break-all;
     }
 
     .hint {
@@ -243,6 +247,17 @@
       return Number.isFinite(n) ? n.toFixed(digits) : "-";
     }
 
+    function formatBytes(bytes, decimals = 2) {
+      if (bytes === undefined || bytes === null || isNaN(bytes)) return "-";
+      bytes = Number(bytes);
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
     function row(label, value) {
       return `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`;
     }
@@ -255,15 +270,18 @@
       document.getElementById("svcUptime").textContent = ok ? `${fmtNum(h.uptime_seconds, 1)}s` : "-";
       document.getElementById("eventsIngested").textContent = ok ? String(h.received_events ?? 0) : "0";
       document.getElementById("historySize").textContent = ok ? String(h.history_size ?? 0) : "0";
-      const age = h && h.last_event_age_seconds;
-      document.getElementById("lastEventAge").textContent = Number.isFinite(age) ? `${fmtNum(age, 1)}s` : "none";
-      document.getElementById("seenTypes").textContent = ok ? String((h.seen_event_types || []).length) : "0";
+      
+      const age = h ? h.last_event_age_seconds : null;
+      document.getElementById("lastEventAge").textContent = (typeof age === 'number' && !isNaN(age)) ? `${fmtNum(age, 1)}s` : "none";
+      
+      const seenTypesCount = h && Array.isArray(h.seen_event_types) ? h.seen_event_types.length : 0;
+      document.getElementById("seenTypes").textContent = ok ? String(seenTypesCount) : "0";
 
       const expected = new Set((h && h.expected_event_types) || []);
       const seen = new Set((h && h.seen_event_types) || []);
       const missing = [...expected].filter((k) => !seen.has(k));
       const hint = document.getElementById("emptyHint");
-      if ((h.received_events || 0) === 0) {
+      if ((h && h.received_events || 0) === 0) {
         hint.textContent = "No events ingested yet. Ensure syswatch output.url points to this server /events endpoint.";
       } else if (missing.length > 0) {
         hint.textContent = `Missing metric types: ${missing.join(", ")}`;
@@ -281,30 +299,68 @@
       const events = (latest && latest.events_by_type) || {};
       const cpu = events["system.metrics.cpu"]?.payload || null;
       const mem = events["system.metrics.memory"]?.payload || null;
-      const disk = events["system.metrics.disk"]?.payload || null;
-      const net = events["system.metrics.network"]?.payload || null;
+      const diskEvent = events["system.metrics.disk"]?.payload || null;
+      const netEvent = events["system.metrics.network"]?.payload || null;
+
+      let otherCpu = 0;
+      let totalUsage = 0;
+      if (cpu) {
+          totalUsage = cpu.usage_pct || 0;
+          let activeUserSys = (cpu.user_pct || 0) + (cpu.system_pct || 0);
+          otherCpu = Math.max(0, totalUsage - activeUserSys);
+      }
 
       setMetricBox("cpuBox", cpu ? [
-        row("usage", `${fmtNum(cpu.usage_pct)} %`),
+        row("usage", `${fmtNum(totalUsage)} %`),
         row("user", `${fmtNum(cpu.user_pct)} %`),
         row("system", `${fmtNum(cpu.system_pct)} %`),
+        row("other/iowait", `${fmtNum(otherCpu)} %`),
         row("idle", `${fmtNum(cpu.idle_pct)} %`),
       ] : []);
 
       setMetricBox("memoryBox", mem ? [
-        row("used", String(mem.mem_used_bytes ?? "-")),
-        row("available", String(mem.mem_available_bytes ?? "-")),
-        row("swap used", String(mem.swap_used_bytes ?? "-")),
+        row("used", formatBytes(mem.mem_used ?? mem.mem_used_bytes)),
+        row("available", formatBytes(mem.mem_available ?? mem.mem_available_bytes)),
+        row("swap used", formatBytes(mem.swap_used ?? mem.swap_used_bytes)),
       ] : []);
 
-      setMetricBox("diskBox", disk ? [
-        row("read", `${fmtNum(disk.read_bps)} B/s`),
-        row("write", `${fmtNum(disk.write_bps)} B/s`),
+      let diskRead = 0;
+      let diskWrite = 0;
+      if (diskEvent) {
+          if (Array.isArray(diskEvent.disks)) {
+              for (const d of diskEvent.disks) {
+                  diskRead += (d.read_bps || 0);
+                  diskWrite += (d.write_bps || 0);
+              }
+          } else {
+              diskRead = diskEvent.read_bps || 0;
+              diskWrite = diskEvent.write_bps || 0;
+          }
+      }
+
+      setMetricBox("diskBox", diskEvent ? [
+        row("read", `${formatBytes(diskRead)}/s`),
+        row("write", `${formatBytes(diskWrite)}/s`),
       ] : []);
 
-      setMetricBox("networkBox", net ? [
-        row("rx", `${fmtNum(net.rx_bps)} B/s`),
-        row("tx", `${fmtNum(net.tx_bps)} B/s`),
+      let netRx = 0;
+      let netTx = 0;
+      if (netEvent) {
+          if (Array.isArray(netEvent.interfaces)) {
+              for (const iface of netEvent.interfaces) {
+                  if (iface.name && iface.name.toLowerCase() === 'lo') continue;
+                  netRx += (iface.rx_bps || 0);
+                  netTx += (iface.tx_bps || 0);
+              }
+          } else {
+              netRx = netEvent.rx_bps || 0;
+              netTx = netEvent.tx_bps || 0;
+          }
+      }
+
+      setMetricBox("networkBox", netEvent ? [
+        row("rx", `${formatBytes(netRx)}/s`),
+        row("tx", `${formatBytes(netTx)}/s`),
       ] : []);
     }
 
@@ -315,7 +371,7 @@
         return;
       }
       const last = events.slice(-30);
-      box.textContent = last.map((e) => JSON.stringify(e)).join("\n");
+      box.innerHTML = last.map((e) => JSON.stringify(e)).join("\n");
       box.scrollTop = box.scrollHeight;
     }
 

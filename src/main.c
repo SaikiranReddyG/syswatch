@@ -292,7 +292,7 @@ static void *collector_thread(void *arg)
 			if (cpu_ptr) {
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"cpu\",\"severity\":\"info\",\"payload\":{\"usage_pct\":%.1f,\"user_pct\":%.1f,\"system_pct\":%.1f,\"idle_pct\":%.1f,\"core_count\":%d}}",
+					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.cpu\",\"severity\":\"info\",\"payload\":{\"usage_pct\":%.1f,\"user_pct\":%.1f,\"system_pct\":%.1f,\"idle_pct\":%.1f,\"core_count\":%d}}",
 					rfc_ts, host_json, cpu_ptr->usage_pct, cpu_ptr->user_pct, cpu_ptr->system_pct, cpu_ptr->idle_pct, cpu_ptr->core_count);
 				queue_enqueue(cfg->event_queue, json, strlen(json));
 			}
@@ -300,7 +300,7 @@ static void *collector_thread(void *arg)
 			if (mem_ptr) {
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"memory\",\"severity\":\"info\",\"payload\":{\"mem_total\":%llu,\"mem_available\":%llu,\"mem_free\":%llu,\"mem_used\":%llu,\"swap_total\":%llu,\"swap_free\":%llu,\"swap_used\":%llu}}",
+					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.memory\",\"severity\":\"info\",\"payload\":{\"mem_total\":%llu,\"mem_available\":%llu,\"mem_free\":%llu,\"mem_used\":%llu,\"swap_total\":%llu,\"swap_free\":%llu,\"swap_used\":%llu}}",
 					rfc_ts, host_json, mem_ptr->mem_total, mem_ptr->mem_available, mem_ptr->mem_free, mem_ptr->mem_used, mem_ptr->swap_total, mem_ptr->swap_free, mem_ptr->swap_used);
 				queue_enqueue(cfg->event_queue, json, strlen(json));
 			}
@@ -308,7 +308,7 @@ static void *collector_thread(void *arg)
 			if (disk_ptr) {
 				char json[2048];
 				int pos = snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"disk\",\"severity\":\"info\",\"payload\":{\"disks\":[",
+					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.disk\",\"severity\":\"info\",\"payload\":{\"disks\":[",
 					rfc_ts, host_json);
 				for (int i = 0; i < disk_ptr->count && pos < (int)sizeof(json) - 512; i++) {
 					if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
@@ -323,7 +323,7 @@ static void *collector_thread(void *arg)
 			if (net_ptr) {
 				char json[2048];
 				int pos = snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"network\",\"severity\":\"info\",\"payload\":{\"interfaces\":[",
+					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.network\",\"severity\":\"info\",\"payload\":{\"interfaces\":[",
 					rfc_ts, host_json);
 				for (int i = 0; i < net_ptr->count && pos < (int)sizeof(json) - 512; i++) {
 					if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
