@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 int read_first_line(const char *path, char *buf, size_t size)
 {
@@ -210,5 +211,46 @@ double timespec_delta_seconds(struct timespec *prev, struct timespec *curr)
 
 	double delta = (double)sec_diff + (double)nsec_diff / 1e9;
 	return delta > 0.0 ? delta : 0.0;
+}
+
+/* Rolling statistics sliding buffer */
+void rolling_stat_add(rolling_stat_t *stat, double val)
+{
+	if (!stat) return;
+	stat->samples[stat->head] = val;
+	stat->head = (stat->head + 1) % ANOMALY_WINDOW;
+	if (stat->count < ANOMALY_WINDOW) {
+		stat->count++;
+	}
+}
+
+bool rolling_stat_check(const rolling_stat_t *stat, double val, double *mean_out, double *stddev_out)
+{
+	if (!stat || stat->count < 10) { /* Need a baseline cache size to measure standard deviations realistically */
+		return false;
+	}
+
+	double sum = 0.0;
+	for (int i = 0; i < stat->count; i++) {
+		sum += stat->samples[i];
+	}
+	double mean = sum / stat->count;
+
+	double var_sum = 0.0;
+	for (int i = 0; i < stat->count; i++) {
+		double diff = stat->samples[i] - mean;
+		var_sum += diff * diff;
+	}
+	double variance = var_sum / stat->count;
+	double stddev = sqrt(variance);
+
+	if (mean_out) *mean_out = mean;
+	if (stddev_out) *stddev_out = stddev;
+
+	if (stddev < 0.001) { /* Skip flat lines */
+		return false;
+	}
+
+	return (val > mean + (3.0 * stddev));
 }
 

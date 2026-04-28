@@ -192,6 +192,9 @@ static void *collector_thread(void *arg)
 	bool high_res_active = false;
 	double high_res_remaining = 0.0;
 
+	rolling_stat_t cpu_rolling;
+	memset(&cpu_rolling, 0, sizeof(cpu_rolling));
+
 	while (!g_stop && (cfg->iterations == 0 || rows < cfg->iterations)) {
 		/* Sleep for configured interval */
 		if (sleep(current_interval) != 0 && g_stop) {
@@ -350,6 +353,19 @@ static void *collector_thread(void *arg)
 					rfc_ts, host_json, cfg->internal_metrics.buffer_depth, cfg->internal_metrics.events_dropped_total, cfg->internal_metrics.events_emitted_total);
 				queue_enqueue(cfg->event_queue, json, strlen(json));
 				cfg->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
+			}
+
+			/* Evaluate Anomaly Detection for CPU */
+			if (cpu_ptr) {
+				double mean, stddev;
+				if (rolling_stat_check(&cpu_rolling, cpu_ptr->usage_pct, &mean, &stddev)) {
+					char json[1024];
+					snprintf(json, sizeof(json),
+						"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.anomaly\",\"severity\":\"high\",\"payload\":{\"metric\":\"cpu.usage\",\"value\":%.1f,\"expected\":%.1f,\"sigma\":%.1f}}",
+						rfc_ts, host_json, cpu_ptr->usage_pct, mean, stddev);
+					queue_enqueue(cfg->event_queue, json, strlen(json));
+				}
+				rolling_stat_add(&cpu_rolling, cpu_ptr->usage_pct);
 			}
 
 			/* Evaluate Adaptive Sampling */
