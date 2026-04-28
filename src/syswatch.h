@@ -38,6 +38,23 @@ typedef struct {
 	bool include_loopback;
 	process_sort_mode_t process_sort;
 	int top_n;
+	char config_path[256];
+	bool validate_only;
+	/* New config fields from YAML */
+	char config_version[16];
+	char output_type[16]; /* stdout | file | http_post */
+	char output_url[256];
+	char output_path[256];
+	int output_batch_size;
+	int output_batch_interval_seconds;
+	int output_retry_max_attempts;
+	int output_retry_backoff_seconds;
+
+	char log_level[16];
+	char log_destination[16];
+	char log_path[256];
+
+	char host_override[128];
 } syswatch_config_t;
 
 typedef struct {
@@ -165,5 +182,16 @@ int parse_ull(const char *s, unsigned long long *out);
 double clamp_double(double val, double min, double max);
 void format_bytes(double bytes, char *buf, size_t len);
 void format_timestamp(char *buf, size_t len);
+
+/* Config loader (simple YAML subset) */
+int load_config_file(const char *path, syswatch_config_t *cfg, char **err);
+int validate_config(const syswatch_config_t *cfg, char **err);
+
+/* Output abstraction */
+int output_init(const syswatch_config_t *cfg, char **err);
+int output_emit_event(const char *json_line);
+int output_flush(void);
+void output_shutdown(void);
+void json_escape_string(const char *input, char *output, size_t output_size);
 
 #endif

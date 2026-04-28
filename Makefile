@@ -4,11 +4,14 @@ SRC_DIR := src
 SRCS := $(wildcard $(SRC_DIR)/*.c)
 OBJS := $(SRCS:.c=.o)
 
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O2
-LDFLAGS :=
+CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)
+CURL_LIBS := $(shell pkg-config --libs libcurl 2>/dev/null)
 
-DEBUG_CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
-DEBUG_LDFLAGS := -fsanitize=address,undefined
+CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O2 $(CURL_CFLAGS)
+LDFLAGS := $(CURL_LIBS)
+
+DEBUG_CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined $(CURL_CFLAGS)
+DEBUG_LDFLAGS := -fsanitize=address,undefined $(CURL_LIBS)
 
 .PHONY: all debug clean
 

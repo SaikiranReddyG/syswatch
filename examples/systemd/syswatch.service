@@ -1,0 +1,19 @@
+[Unit]
+Description=syswatch system metrics collector
+Documentation=https://github.com/<your-username>/syswatch
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/syswatch --config /etc/syswatch/syswatch.yaml
+Restart=on-failure
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/syswatch
+
+[Install]
+WantedBy=multi-user.target

@@ -1,116 +1,48 @@
 # syswatch
 
-`syswatch` is a lightweight Linux system monitor written in pure C.
-It reads `/proc` directly and prints one row per sampling tick.
+syswatch is a lightweight Linux system metrics collector that reads `/proc` and emits structured JSON events.
 
-Features:
-- CPU usage from `/proc/stat` using delta math between samples.
-- Memory and swap from `/proc/meminfo` (`used = total - available`).
-- Disk throughput from `/proc/diskstats` (sectors delta -> bytes/sec).
-- Network throughput from `/proc/net/dev` (rx/tx bytes delta -> bytes/sec).
-- Optional top process summary from `/proc/[pid]/stat` and `/proc/[pid]/status`.
-- Human-readable table mode and CSV mode for piping to other tools.
-- Includes `syswatch-course.html` as a project learning artifact for walkthrough-style documentation.
+**Goals**
+- Build from source with `make` and run as `./syswatch --config <path>`
+- Emit line-delimited JSON events (one per line) to `stdout`, `file`, or `http_post` according to config
+- Run in foreground and exit cleanly on `SIGTERM`/`SIGINT`
 
-## Build
+**Quickstart**
+1. Build:
 
 ```bash
 make
 ```
 
-Debug build with sanitizers:
+2. Run with the example config:
 
 ```bash
-make debug
+./syswatch --config syswatch.example.yaml
 ```
 
-Clean artifacts:
+3. Stop with Ctrl+C or `kill -TERM <pid>`.
+
+**Configuration**
+- See `syswatch.example.yaml` in the repository root for the v1.0 config schema and sensible defaults.
+- Important flags supported by the runtime:
+	- `--config <path>`: path to YAML config file (use `-` to read from stdin)
+	- `--validate-config`: parse and validate the config and exit
+	- `--version`: print the build version and exit
+
+**Output destinations**
+- `stdout`: line-delimited JSON, one event per line
+- `file`: append-only JSONL file
+- `http_post`: POST batches of events as a JSON array to a configured URL
+
+**Smoke test**
+Run the included smoke script (requires a working build):
 
 ```bash
-make clean
+bash test/smoke.sh
 ```
 
-## Usage
+**Further reading**
+- Example config: `syswatch.example.yaml`
+- Example systemd unit: `examples/systemd/syswatch.service`
 
-```bash
-./syswatch [options]
-```
-
-Options:
-- `-i, --interval SEC` refresh interval in seconds (default: `1`)
-- `-n, --iterations N` number of rows to print (`0` means run forever)
-- `-c, --csv` CSV mode (no ANSI colors)
-- `--no-cpu` hide CPU columns
-- `--no-memory` hide memory columns
-- `--no-disk` hide disk columns
-- `--no-network` hide network columns
-- `--disk-details` show per-disk throughput breakdown
-- `--net-details` show per-interface throughput breakdown
-- `--include-lo` include loopback interface (`lo`) in network totals
-- `-p, --processes` show top process summary column
-- `-t, --top N` number of top processes to include in human mode (default: `5`)
-- `-s, --proc-sort MODE` process sorting: `cpu` or `mem`
-- `-h, --help` show help
-
-## Examples
-
-Human-readable output:
-
-```bash
-./syswatch
-```
-
-Run for 10 rows at 2-second interval:
-
-```bash
-./syswatch -i 2 -n 10
-```
-
-CSV mode to file:
-
-```bash
-./syswatch --csv -n 5 > out.csv
-```
-
-CSV mode piped to another command:
-
-```bash
-./syswatch --csv | tee live.csv
-```
-
-Include top processes sorted by memory:
-
-```bash
-./syswatch -p -s mem -t 3
-```
-
-Show per-device and per-interface throughput details:
-
-```bash
-./syswatch --disk-details --net-details -n 5
-```
-
-## Output Notes
-
-- CPU/network/disk values are rates, so the tool captures a baseline and prints the first row after one interval.
-- Memory usage uses `MemAvailable`, matching modern Linux memory interpretation.
-- Disk/network aggregate columns are always present when enabled; optional detail columns show per-disk and per-interface rates.
-- Process CPU percentage is computed per tick from process jiffy delta divided by total CPU jiffy delta.
-
-## Progress Log
-
-- [x] Project skeleton (`Makefile`, `src/`, module split).
-- [x] Shared contracts and configuration (`src/syswatch.h`).
-- [x] Collector implementations for CPU, memory, disk, and network.
-- [x] Optional process collector and sorting.
-- [x] Dual output renderer (human + CSV).
-- [x] Main loop, argument parsing, and Ctrl+C handling.
-- [x] Optional per-disk/per-interface detail output in human and CSV modes.
-- [x] Per-tick process CPU percentage based on deltas.
-- [ ] Additional tests/benchmarks for very large process counts and unusual device naming environments.
-
-## Limitations
-
-- Linux-only (`/proc` required).
-- No ncurses/TUI mode in this implementation; output is line-oriented and pipe-friendly.
-- Some `/proc/[pid]` entries can become unreadable between scan and parse as processes exit; those are skipped.
+If you need the previous human/CSV display modes, those are preserved in `src/display.c` for reference but will be refactored to the new output abstraction.

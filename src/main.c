@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "syswatch.h"
 
 #include <errno.h>
@@ -35,6 +36,7 @@ static int parse_positive_int(const char *s, int *out)
 	return 0;
 }
 
+
 static int parse_non_negative_int(const char *s, int *out)
 {
 	long v;
@@ -66,6 +68,10 @@ static int sleep_interval(int seconds)
 		}
 	}
 
+	/* Flush and shutdown output cleanly */
+	output_flush();
+	output_shutdown();
+
 	return 0;
 }
 
@@ -79,6 +85,10 @@ void init_default_config(syswatch_config_t *cfg)
 	cfg->interval_sec = DEFAULT_REFRESH_INTERVAL;
 	cfg->iterations = DEFAULT_ITERATIONS;
 	cfg->csv_mode = false;
+	strncpy(cfg->config_version, "1.0", sizeof(cfg->config_version) - 1);
+	strncpy(cfg->output_type, "stdout", sizeof(cfg->output_type) - 1);
+	strncpy(cfg->log_level, "info", sizeof(cfg->log_level) - 1);
+	strncpy(cfg->log_destination, "stderr", sizeof(cfg->log_destination) - 1);
 
 	cfg->show_cpu = true;
 	cfg->show_memory = true;
@@ -91,6 +101,8 @@ void init_default_config(syswatch_config_t *cfg)
 	cfg->include_loopback = false;
 	cfg->process_sort = PROCESS_SORT_CPU;
 	cfg->top_n = DEFAULT_TOP_N;
+	cfg->config_path[0] = '\0';
+	cfg->validate_only = false;
 }
 
 void print_usage(const char *prog)
@@ -110,6 +122,9 @@ void print_usage(const char *prog)
 	printf("  -t, --top N             Number of top processes to include (default: 5)\n");
 	printf("  -s, --proc-sort MODE    Process sort mode: cpu or mem (default: cpu)\n");
 	printf("  -h, --help              Show this help text\n");
+	printf("      --config PATH       YAML config path (use - to read stdin)\n");
+	printf("      --validate-config   Parse and validate config then exit\n");
+	printf("      --version           Print version and exit\n");
 }
 
 int parse_args(int argc, char **argv, syswatch_config_t *cfg)
@@ -120,6 +135,9 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 		{"interval", required_argument, NULL, 'i'},
 		{"iterations", required_argument, NULL, 'n'},
 		{"csv", no_argument, NULL, 'c'},
+		{"config", required_argument, NULL, 2001},
+		{"validate-config", no_argument, NULL, 2002},
+		{"version", no_argument, NULL, 2003},
 		{"no-cpu", no_argument, NULL, 1000},
 		{"no-memory", no_argument, NULL, 1001},
 		{"no-disk", no_argument, NULL, 1002},
@@ -178,6 +196,15 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 		case 'h':
 			print_usage(argv[0]);
 			exit(0);
+		case 2001:
+			strncpy(cfg->config_path, optarg, sizeof(cfg->config_path) - 1);
+			break;
+		case 2002:
+			cfg->validate_only = true;
+			break;
+		case 2003:
+			printf("syswatch 0.1.0\n");
+			exit(0);
 		case 1000:
 			cfg->show_cpu = false;
 			break;
@@ -202,6 +229,16 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 		default:
 			return -1;
 		}
+	}
+
+	if (cfg->validate_only && cfg->config_path[0] == '\0' && optind < argc) {
+		strncpy(cfg->config_path, argv[optind], sizeof(cfg->config_path) - 1);
+		optind++;
+	}
+
+	if (optind < argc) {
+		fprintf(stderr, "Unexpected argument: %s\n", argv[optind]);
+		return -1;
 	}
 
 	if (!cfg->show_cpu && !cfg->show_memory && !cfg->show_disk && !cfg->show_network && !cfg->show_processes) {
@@ -243,7 +280,42 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	if (cfg.config_path[0] == '\0') {
+		fprintf(stderr, "--config <path> is required\n");
+		print_usage(argv[0]);
+		return 1;
+	}
+
+	if (cfg.config_path[0] != '\0') {
+		char *err = NULL;
+		if (load_config_file(cfg.config_path, &cfg, &err) != 0) {
+			fprintf(stderr, "config load error: %s\n", err ? err : "unknown");
+			return 2;
+		}
+		if (cfg.validate_only) {
+			/* validate-only mode */
+			char *verr = NULL;
+			int r = validate_config(&cfg, &verr);
+			if (r != 0) {
+				fprintf(stderr, "config validation failed: %s\n", verr ? verr : "error");
+				return 3;
+			}
+			printf("config OK\n");
+			return 0;
+		}
+	}
+
+	/* Initialize output destination */
+	{
+		char *oerr = NULL;
+		if (output_init(&cfg, &oerr) != 0) {
+			fprintf(stderr, "output init failed: %s\n", oerr ? oerr : "unknown");
+			return 4;
+		}
+	}
+
 	signal(SIGINT, handle_sigint);
+	signal(SIGTERM, handle_sigint);
 
 	memset(&cpu_prev, 0, sizeof(cpu_prev));
 	memset(&cpu_curr, 0, sizeof(cpu_curr));
@@ -267,7 +339,9 @@ int main(int argc, char **argv)
 		net_ready = true;
 	}
 
-	display_print_header(&cfg);
+	if (cfg.config_path[0] == '\0') {
+		display_print_header(&cfg);
+	}
 
 	rows = 0;
 	need_sleep_before_row = need_baseline;
@@ -323,7 +397,71 @@ int main(int argc, char **argv)
 			proc_ptr = &proc_list;
 		}
 
-		display_print_row(&cfg, cpu_ptr, mem_ptr, disk_ptr, net_ptr, proc_ptr);
+		if (cfg.config_path[0] == '\0') {
+			display_print_row(&cfg, cpu_ptr, mem_ptr, disk_ptr, net_ptr, proc_ptr);
+		}
+
+		/* Emit JSON events for each metric category present */
+		{
+			char ts[64];
+			char hostbuf[128];
+			char host_json[256];
+			format_timestamp(ts, sizeof(ts));
+			if (cfg.host_override[0] != '\0') {
+				strncpy(hostbuf, cfg.host_override, sizeof(hostbuf)-1);
+				hostbuf[sizeof(hostbuf)-1] = '\0';
+			} else {
+				if (gethostname(hostbuf, sizeof(hostbuf)) != 0) {
+					strncpy(hostbuf, "unknown", sizeof(hostbuf));
+					hostbuf[sizeof(hostbuf)-1] = '\0';
+				}
+			}
+			json_escape_string(hostbuf, host_json, sizeof(host_json));
+
+			if (cpu_ptr) {
+				char json[1024];
+				snprintf(json, sizeof(json),
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.0\",\"host\":\"%s\",\"event_type\":\"system.metrics.cpu\",\"severity\":\"info\",\"payload\":{\"user_pct\":%.2f,\"system_pct\":%.2f,\"idle_pct\":%.2f,\"usage_pct\":%.2f,\"interval_seconds\":%d}}",
+					ts, host_json, cpu_ptr->user_pct, cpu_ptr->system_pct, cpu_ptr->idle_pct, cpu_ptr->usage_pct, cfg.interval_sec);
+				output_emit_event(json);
+			}
+
+			if (mem_ptr) {
+				char json[1024];
+				snprintf(json, sizeof(json),
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.0\",\"host\":\"%s\",\"event_type\":\"system.metrics.memory\",\"severity\":\"info\",\"payload\":{\"mem_used_bytes\":%llu,\"mem_available_bytes\":%llu,\"swap_used_bytes\":%llu}}",
+					ts, host_json, (unsigned long long)mem_ptr->mem_used, (unsigned long long)mem_ptr->mem_available, (unsigned long long)mem_ptr->swap_used);
+				output_emit_event(json);
+			}
+
+			if (disk_ptr) {
+				double total_rd = 0.0, total_wr = 0.0;
+				int i;
+				for (i = 0; i < disk_ptr->count; i++) {
+					total_rd += disk_ptr->items[i].read_bps;
+					total_wr += disk_ptr->items[i].write_bps;
+				}
+				char json[1024];
+				snprintf(json, sizeof(json),
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.0\",\"host\":\"%s\",\"event_type\":\"system.metrics.disk\",\"severity\":\"info\",\"payload\":{\"read_bps\":%.2f,\"write_bps\":%.2f}}",
+					ts, host_json, total_rd, total_wr);
+				output_emit_event(json);
+			}
+
+			if (net_ptr) {
+				double total_rx = 0.0, total_tx = 0.0;
+				int i;
+				for (i = 0; i < net_ptr->count; i++) {
+					total_rx += net_ptr->items[i].rx_bps;
+					total_tx += net_ptr->items[i].tx_bps;
+				}
+				char json[1024];
+				snprintf(json, sizeof(json),
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.0\",\"host\":\"%s\",\"event_type\":\"system.metrics.network\",\"severity\":\"info\",\"payload\":{\"rx_bps\":%.2f,\"tx_bps\":%.2f}}",
+					ts, host_json, total_rx, total_tx);
+				output_emit_event(json);
+			}
+		}
 		fflush(stdout);
 
 		rows++;

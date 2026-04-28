@@ -1,0 +1,36 @@
+# syswatch.example.yaml
+# Version of this config schema. Bump when making breaking changes.
+config_version: "1.0"
+
+# How often to sample /proc, in seconds
+poll_interval_seconds: 5
+
+# Which subsystems to monitor. Set to false to skip.
+collect:
+  cpu: true
+  memory: true
+  disk: true
+  network: true
+  load: true
+  processes: false
+
+# Where to send events
+output:
+  type: stdout         # stdout | http_post | file
+  # Used if type is http_post:
+  url: "http://127.0.0.1:8765/events"
+  batch_size: 50
+  batch_interval_seconds: 2
+  retry_max_attempts: 5
+  retry_backoff_seconds: 1
+  # Used if type is file:
+  path: "/var/log/syswatch/events.jsonl"
+
+# Logging
+log:
+  level: info          # debug | info | warn | error
+  destination: stderr  # stderr | file
+  path: "/var/log/syswatch/syswatch.log"  # used only if destination is file
+
+# Identity
+host_override: ""      # If empty, uses gethostname()
