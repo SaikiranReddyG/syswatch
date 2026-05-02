@@ -171,7 +171,7 @@ static void *collector_thread(void *arg)
 		json_escape_string(hostbuf, host_json, sizeof(host_json));
 
 		snprintf(json, sizeof(json),
-			"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.lifecycle\",\"severity\":\"info\",\"payload\":{\"state\":\"warming_up\"}}",
+			"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.warming_up\",\"severity\":\"info\",\"payload\":{}}",
 			rfc_ts, host_json);
 		queue_enqueue(cfg->event_queue, json, strlen(json));
 	}
@@ -228,7 +228,7 @@ static void *collector_thread(void *arg)
 			json_escape_string(hostbuf, host_json, sizeof(host_json));
 
 			snprintf(json, sizeof(json),
-				"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.lifecycle\",\"severity\":\"info\",\"payload\":{\"state\":\"ready\"}}",
+				"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.ready\",\"severity\":\"info\",\"payload\":{}}",
 				rfc_ts, host_json);
 			queue_enqueue(cfg->event_queue, json, strlen(json));
 			first_iteration = false;
@@ -299,7 +299,7 @@ static void *collector_thread(void *arg)
 			if (cpu_ptr) {
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.cpu\",\"severity\":\"info\",\"payload\":{\"usage_pct\":%.1f,\"user_pct\":%.1f,\"system_pct\":%.1f,\"idle_pct\":%.1f,\"core_count\":%d}}",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.cpu\",\"severity\":\"info\",\"payload\":{\"usage_pct\":%.1f,\"user_pct\":%.1f,\"system_pct\":%.1f,\"idle_pct\":%.1f,\"core_count\":%d}}",
 					rfc_ts, host_json, cpu_ptr->usage_pct, cpu_ptr->user_pct, cpu_ptr->system_pct, cpu_ptr->idle_pct, cpu_ptr->core_count);
 				queue_enqueue(cfg->event_queue, json, strlen(json));
 			}
@@ -307,7 +307,7 @@ static void *collector_thread(void *arg)
 			if (mem_ptr) {
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.memory\",\"severity\":\"info\",\"payload\":{\"mem_total\":%llu,\"mem_available\":%llu,\"mem_free\":%llu,\"mem_used\":%llu,\"swap_total\":%llu,\"swap_free\":%llu,\"swap_used\":%llu}}",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.memory\",\"severity\":\"info\",\"payload\":{\"mem_total\":%llu,\"mem_available\":%llu,\"mem_free\":%llu,\"mem_used\":%llu,\"swap_total\":%llu,\"swap_free\":%llu,\"swap_used\":%llu}}",
 					rfc_ts, host_json, mem_ptr->mem_total, mem_ptr->mem_available, mem_ptr->mem_free, mem_ptr->mem_used, mem_ptr->swap_total, mem_ptr->swap_free, mem_ptr->swap_used);
 				queue_enqueue(cfg->event_queue, json, strlen(json));
 			}
@@ -315,7 +315,7 @@ static void *collector_thread(void *arg)
 			if (disk_ptr) {
 				char json[2048];
 				int pos = snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.disk\",\"severity\":\"info\",\"payload\":{\"disks\":[",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.disk\",\"severity\":\"info\",\"payload\":{\"disks\":[",
 					rfc_ts, host_json);
 				for (int i = 0; i < disk_ptr->count && pos < (int)sizeof(json) - 512; i++) {
 					if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
@@ -330,7 +330,7 @@ static void *collector_thread(void *arg)
 			if (net_ptr) {
 				char json[2048];
 				int pos = snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"system.metrics.network\",\"severity\":\"info\",\"payload\":{\"interfaces\":[",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.network\",\"severity\":\"info\",\"payload\":{\"interfaces\":[",
 					rfc_ts, host_json);
 				for (int i = 0; i < net_ptr->count && pos < (int)sizeof(json) - 512; i++) {
 					if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
@@ -349,7 +349,7 @@ static void *collector_thread(void *arg)
 
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.internal\",\"severity\":\"info\",\"payload\":{\"buffer_depth\":%llu,\"events_dropped_total\":%llu,\"events_emitted_total\":%llu}}",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.internal\",\"severity\":\"info\",\"payload\":{\"buffer_depth\":%llu,\"events_dropped_total\":%llu,\"events_emitted_total\":%llu}}",
 					rfc_ts, host_json, cfg->internal_metrics.buffer_depth, cfg->internal_metrics.events_dropped_total, cfg->internal_metrics.events_emitted_total);
 				queue_enqueue(cfg->event_queue, json, strlen(json));
 				cfg->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
@@ -361,7 +361,7 @@ static void *collector_thread(void *arg)
 				if (rolling_stat_check(&cpu_rolling, cpu_ptr->usage_pct, &mean, &stddev)) {
 					char json[1024];
 					snprintf(json, sizeof(json),
-						"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.anomaly\",\"severity\":\"high\",\"payload\":{\"metric\":\"cpu.usage\",\"value\":%.1f,\"expected\":%.1f,\"sigma\":%.1f}}",
+						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.anomaly\",\"severity\":\"high\",\"payload\":{\"metric\":\"cpu.usage\",\"value\":%.1f,\"expected\":%.1f,\"sigma\":%.1f}}",
 						rfc_ts, host_json, cpu_ptr->usage_pct, mean, stddev);
 					queue_enqueue(cfg->event_queue, json, strlen(json));
 				}
@@ -380,7 +380,7 @@ static void *collector_thread(void *arg)
 					current_interval = 1;
 					char json[1024];
 					snprintf(json, sizeof(json),
-						"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.lifecycle\",\"severity\":\"warn\",\"payload\":{\"state\":\"high_resolution_mode\",\"reason\":\"load_threshold_exceeded\"}}",
+						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.high_resolution_mode\",\"severity\":\"medium\",\"payload\":{\"reason\":\"load_threshold_exceeded\"}}",
 						rfc_ts, host_json);
 					queue_enqueue(cfg->event_queue, json, strlen(json));
 				}
@@ -391,7 +391,7 @@ static void *collector_thread(void *arg)
 					current_interval = cfg->interval_sec;
 					char json[1024];
 					snprintf(json, sizeof(json),
-						"{\"timestamp\":\"%s\",\"host\":%s,\"source\":\"syswatch\",\"event_type\":\"syswatch.lifecycle\",\"severity\":\"info\",\"payload\":{\"state\":\"normal_resolution_mode\",\"reason\":\"load_normalized\"}}",
+						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.normal_resolution_mode\",\"severity\":\"info\",\"payload\":{\"reason\":\"load_normalized\"}}",
 						rfc_ts, host_json);
 					queue_enqueue(cfg->event_queue, json, strlen(json));
 				}
