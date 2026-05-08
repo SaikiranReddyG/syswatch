@@ -78,43 +78,39 @@ int disk_read_snapshot(disk_snapshot_t *out)
 	}
 
 	while (fgets(line, sizeof(line), fp) && out->count < MAX_DISKS) {
-		unsigned int major;
-		unsigned int minor;
-		char name[32];
-		unsigned long long reads_completed;
-		unsigned long long reads_merged;
+		char *cursor;
+		char *token;
+		char *name;
 		unsigned long long sectors_read;
-		unsigned long long read_ms;
-		unsigned long long writes_completed;
-		unsigned long long writes_merged;
 		unsigned long long sectors_written;
-		unsigned long long write_ms;
-		int n;
+		int field;
 
-		n = sscanf(line,
-			"%u %u %31s %llu %llu %llu %llu %llu %llu %llu %llu",
-			&major,
-			&minor,
-			name,
-			&reads_completed,
-			&reads_merged,
-			&sectors_read,
-			&read_ms,
-			&writes_completed,
-			&writes_merged,
-			&sectors_written,
-			&write_ms);
+		cursor = trim_whitespace(line);
+		if (!cursor || *cursor == '\0') {
+			continue;
+		}
 
-		(void)major;
-		(void)minor;
-		(void)reads_completed;
-		(void)reads_merged;
-		(void)read_ms;
-		(void)writes_completed;
-		(void)writes_merged;
-		(void)write_ms;
+		field = 0;
+		name = NULL;
+		sectors_read = 0;
+		sectors_written = 0;
+		for (token = strtok(cursor, " \t"); token; token = strtok(NULL, " \t")) {
+			field++;
+			if (field == 3) {
+				name = token;
+			} else if (field == 6) {
+				if (parse_ull(token, &sectors_read) != 0) {
+					break;
+				}
+			} else if (field == 10) {
+				if (parse_ull(token, &sectors_written) != 0) {
+					break;
+				}
+				break;
+			}
+		}
 
-		if (n < 11 || !is_whole_disk_name(name)) {
+		if (field < 10 || !name || !is_whole_disk_name(name)) {
 			continue;
 		}
 

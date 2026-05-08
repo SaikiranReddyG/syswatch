@@ -133,8 +133,6 @@ static void *collector_thread(void *arg)
 	bool cpu_ready = false, disk_ready = false, net_ready = false;
 	int rows = 0;
 	bool first_iteration = true;
-	struct timespec last_mono;
-	struct timespec mono_now;
 
 	memset(&cpu_prev, 0, sizeof(cpu_prev));
 	memset(&cpu_curr, 0, sizeof(cpu_curr));
@@ -170,24 +168,12 @@ static void *collector_thread(void *arg)
 	if (cfg->show_network && net_read_snapshot(&net_prev, cfg->include_loopback) == 0) {
 		net_ready = true;
 	}
-	get_mono_time(&last_mono);
-
-	int current_interval = cfg->interval_sec;
-	bool high_res_active = false;
-	double high_res_remaining = 0.0;
-
-	rolling_stat_t cpu_rolling;
-	memset(&cpu_rolling, 0, sizeof(cpu_rolling));
 
 	while (!g_stop && (cfg->iterations == 0 || rows < cfg->iterations)) {
 		/* Sleep for configured interval */
-		if (sleep(current_interval) != 0 && g_stop) {
+		if (sleep(cfg->interval_sec) != 0 && g_stop) {
 			break;
 		}
-
-		get_mono_time(&mono_now);
-		double delta_sec = timespec_delta_seconds(&last_mono, &mono_now);
-		last_mono = mono_now;
 
 		/* Emit "ready" event on first real iteration */
 		if (first_iteration) {
@@ -322,47 +308,6 @@ static void *collector_thread(void *arg)
 				cfg->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
 			}
 
-			/* Evaluate Anomaly Detection for CPU */
-			if (cpu_ptr) {
-				double mean, stddev;
-				if (rolling_stat_check(&cpu_rolling, cpu_ptr->usage_pct, &mean, &stddev)) {
-					char json[1024];
-					snprintf(json, sizeof(json),
-						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.anomaly\",\"severity\":\"high\",\"payload\":{\"metric\":\"cpu.usage\",\"value\":%.1f,\"expected\":%.1f,\"sigma\":%.1f}}",
-						rfc_ts, host_json, cpu_ptr->usage_pct, mean, stddev);
-					queue_enqueue(cfg->event_queue, json, strlen(json));
-				}
-				rolling_stat_add(&cpu_rolling, cpu_ptr->usage_pct);
-			}
-
-			/* Evaluate Adaptive Sampling */
-			bool is_interesting = false;
-			if (cpu_ptr && cpu_ptr->usage_pct > 80.0) is_interesting = true;
-			if (mem_ptr && mem_ptr->mem_total > 0 && ((double)mem_ptr->mem_used / (double)mem_ptr->mem_total) > 0.90) is_interesting = true;
-
-			if (is_interesting) {
-				high_res_remaining = 30.0;
-				if (!high_res_active && cfg->interval_sec > 1) {
-					high_res_active = true;
-					current_interval = 1;
-					char json[1024];
-					snprintf(json, sizeof(json),
-						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.lifecycle.high_resolution_mode\",\"severity\":\"medium\",\"payload\":{\"reason\":\"load_threshold_exceeded\"}}",
-						rfc_ts, host_json);
-					queue_enqueue(cfg->event_queue, json, strlen(json));
-				}
-			} else if (high_res_active) {
-				high_res_remaining -= delta_sec;
-				if (high_res_remaining <= 0.0) {
-					high_res_active = false;
-					current_interval = cfg->interval_sec;
-					char json[1024];
-					snprintf(json, sizeof(json),
-						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.lifecycle.normal_resolution_mode\",\"severity\":\"info\",\"payload\":{\"reason\":\"load_normalized\"}}",
-						rfc_ts, host_json);
-					queue_enqueue(cfg->event_queue, json, strlen(json));
-				}
-			}
 		}
 
 		rows++;

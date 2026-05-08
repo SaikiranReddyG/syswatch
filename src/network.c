@@ -32,75 +32,57 @@ int net_read_snapshot(net_snapshot_t *out, bool include_loopback)
 
 	line_no = 0;
 	while (fgets(line, sizeof(line), fp) && out->count < MAX_INTERFACES) {
-		char ifname[32];
-		char *name_start;
-		unsigned long long rx_packets;
-		unsigned long long rx_errs;
-		unsigned long long rx_drop;
-		unsigned long long rx_fifo;
-		unsigned long long rx_frame;
-		unsigned long long rx_compressed;
-		unsigned long long rx_multicast;
+		char *cursor;
+		char *token;
+		char *name;
 		unsigned long long rx_bytes;
-		unsigned long long tx_packets;
-		unsigned long long tx_errs;
-		unsigned long long tx_drop;
-		unsigned long long tx_fifo;
-		unsigned long long tx_colls;
-		unsigned long long tx_carrier;
-		unsigned long long tx_compressed;
 		unsigned long long tx_bytes;
-		int n;
+		int field;
 
 		line_no++;
 		if (line_no <= 2) {
 			continue;
 		}
 
-		name_start = trim_whitespace(line);
-		n = sscanf(name_start,
-			"%31[^:]: %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu",
-			ifname,
-			&rx_bytes,
-			&rx_packets,
-			&rx_errs,
-			&rx_drop,
-			&rx_fifo,
-			&rx_frame,
-			&rx_compressed,
-			&rx_multicast,
-			&tx_bytes,
-			&tx_packets,
-			&tx_errs,
-			&tx_drop,
-			&tx_fifo,
-			&tx_colls,
-			&tx_carrier,
-			&tx_compressed);
-		if (n != 17) {
+		cursor = trim_whitespace(line);
+		if (!cursor || *cursor == '\0') {
 			continue;
 		}
 
-		(void)rx_packets;
-		(void)rx_errs;
-		(void)rx_drop;
-		(void)rx_fifo;
-		(void)rx_frame;
-		(void)rx_compressed;
-		(void)rx_multicast;
-		(void)tx_packets;
-		(void)tx_errs;
-		(void)tx_drop;
-		(void)tx_fifo;
-		(void)tx_colls;
-		(void)tx_carrier;
-		(void)tx_compressed;
+		field = 0;
+		name = NULL;
+		rx_bytes = 0;
+		tx_bytes = 0;
+		for (token = strtok(cursor, " \t"); token; token = strtok(NULL, " \t")) {
+			field++;
+			if (field == 1) {
+				char *colon = strchr(token, ':');
+				if (!colon) {
+					break;
+				}
+				*colon = '\0';
+				name = token;
+			} else if (field == 2) {
+				if (parse_ull(token, &rx_bytes) != 0) {
+					break;
+				}
+			} else if (field == 10) {
+				if (parse_ull(token, &tx_bytes) != 0) {
+					break;
+				}
+				break;
+			}
+		}
 
-		if (!include_loopback && strcmp(ifname, "lo") == 0) {
+		if (field < 10 || !name) {
 			continue;
 		}
 
-		snprintf(out->items[out->count].name, sizeof(out->items[out->count].name), "%s", ifname);
+		if (!include_loopback && strcmp(name, "lo") == 0) {
+			continue;
+		}
+
+		snprintf(out->items[out->count].name, sizeof(out->items[out->count].name), "%s", name);
 		out->items[out->count].rx_bytes = rx_bytes;
 		out->items[out->count].tx_bytes = tx_bytes;
 		out->count++;

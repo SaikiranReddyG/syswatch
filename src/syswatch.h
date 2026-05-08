@@ -22,7 +22,6 @@
 #define COLW_TIME 8
 #define COLW_SMALL 7
 #define COLW_MEDIUM 10
-#define ANOMALY_WINDOW 60
 
 typedef enum {
 	PROCESS_SORT_CPU = 0,
@@ -198,15 +197,6 @@ void init_default_config(syswatch_config_t *cfg);
 int parse_args(int argc, char **argv, syswatch_config_t *cfg);
 void print_usage(const char *prog);
 
-typedef struct {
-	double samples[ANOMALY_WINDOW];
-	int count;
-	int head;
-} rolling_stat_t;
-
-void rolling_stat_add(rolling_stat_t *stat, double val);
-bool rolling_stat_check(const rolling_stat_t *stat, double val, double *mean_out, double *stddev_out);
-
 int cpu_read_snapshot(cpu_snapshot_t *out);
 int cpu_compute_stats(const cpu_snapshot_t *prev, const cpu_snapshot_t *curr, cpu_stats_t *out);
 
@@ -251,6 +241,5 @@ unsigned long long queue_dropped_count(event_queue_t *q);
 int get_mono_time(struct timespec *ts);
 int get_wall_time(struct timespec *ts);
 void format_rfc3339(struct timespec *ts, char *buf, size_t len);
-double timespec_delta_seconds(struct timespec *prev, struct timespec *curr);
 
 #endif
