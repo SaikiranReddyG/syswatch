@@ -19,9 +19,7 @@
 #define MAX_QUEUE_DEPTH 10000
 #define MAX_EVENT_SIZE 4096
 
-#define COLW_TIME 8
-#define COLW_SMALL 7
-#define COLW_MEDIUM 10
+#define SYSWATCH_VERSION "0.1.1"
 
 typedef enum {
 	PROCESS_SORT_CPU = 0,
@@ -212,7 +210,7 @@ char *trim_whitespace(char *s);
 int parse_ull(const char *s, unsigned long long *out);
 double clamp_double(double val, double min, double max);
 void format_bytes(double bytes, char *buf, size_t len);
-void format_timestamp(char *buf, size_t len);
+/* display renderer removed; `format_timestamp` and related column macros removed */
 
 /* Config loader (simple YAML subset) */
 int load_config_file(const char *path, syswatch_config_t *cfg, char **err);

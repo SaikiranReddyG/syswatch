@@ -117,24 +117,7 @@ void format_bytes(double bytes, char *buf, size_t len)
 	}
 }
 
-void format_timestamp(char *buf, size_t len)
-{
-	time_t now;
-	struct tm *tm_now;
-
-	if (!buf || len == 0) {
-		return;
-	}
-
-	now = time(NULL);
-	tm_now = localtime(&now);
-	if (tm_now == NULL) {
-		snprintf(buf, len, "--:--:--");
-		return;
-	}
-
-	strftime(buf, len, "%H:%M:%S", tm_now);
-}
+/* display renderer removed; timestamp formatting via format_rfc3339 is used for events. */
 
 /* Get monotonic time (for interval calculations, immune to clock adjustments) */
 int get_mono_time(struct timespec *ts)

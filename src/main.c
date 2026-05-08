@@ -47,7 +47,7 @@ static void handle_sigint(int sig)
 	g_stop = 1;
 }
 
-static int parse_positive_int(const char *s, int *out)
+static int parse_int_in_range(const char *s, int min_value, int max_value, int *out)
 {
 	long v;
 	char *endptr;
@@ -58,27 +58,7 @@ static int parse_positive_int(const char *s, int *out)
 
 	errno = 0;
 	v = strtol(s, &endptr, 10);
-	if (errno != 0 || endptr == s || *endptr != '\0' || v <= 0 || v > 86400) {
-		return -1;
-	}
-
-	*out = (int)v;
-	return 0;
-}
-
-
-static int parse_non_negative_int(const char *s, int *out)
-{
-	long v;
-	char *endptr;
-
-	if (!s || !out) {
-		return -1;
-	}
-
-	errno = 0;
-	v = strtol(s, &endptr, 10);
-	if (errno != 0 || endptr == s || *endptr != '\0' || v < 0 || v > 1000000) {
+	if (errno != 0 || endptr == s || *endptr != '\0' || v < min_value || v > max_value) {
 		return -1;
 	}
 
@@ -186,24 +166,13 @@ static void *collector_thread(void *arg)
 			struct timespec ts;
 			char rfc_ts[64];
 			char host_json[256];
-			char hostbuf[128];
 
 			get_wall_time(&ts);
 			format_rfc3339(&ts, rfc_ts, sizeof(rfc_ts));
-
-			if (cfg->host_override[0] != '\0') {
-				strncpy(hostbuf, cfg->host_override, sizeof(hostbuf)-1);
-				hostbuf[sizeof(hostbuf)-1] = '\0';
-			} else {
-				if (gethostname(hostbuf, sizeof(hostbuf)) != 0) {
-					strncpy(hostbuf, "unknown", sizeof(hostbuf));
-					hostbuf[sizeof(hostbuf)-1] = '\0';
-				}
-			}
-			json_escape_string(hostbuf, host_json, sizeof(host_json));
+			resolve_event_host(cfg, host_json, sizeof(host_json));
 
 			snprintf(json, sizeof(json),
-				"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.ready\",\"severity\":\"info\",\"payload\":{}}",
+				"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.lifecycle.ready\",\"severity\":\"info\",\"payload\":{}}",
 				rfc_ts, host_json);
 			queue_enqueue(ctx->event_queue, json, strlen(json));
 			first_iteration = false;
@@ -407,13 +376,13 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 		(void)long_idx;
 		switch (opt) {
 		case 'i':
-			if (parse_positive_int(optarg, &cfg->interval_sec) != 0) {
+			if (parse_int_in_range(optarg, 1, 86400, &cfg->interval_sec) != 0) {
 				fprintf(stderr, "Invalid interval: %s\n", optarg);
 				return -1;
 			}
 			break;
 		case 'n':
-			if (parse_non_negative_int(optarg, &cfg->iterations) != 0) {
+			if (parse_int_in_range(optarg, 0, 1000000, &cfg->iterations) != 0) {
 				fprintf(stderr, "Invalid iterations: %s\n", optarg);
 				return -1;
 			}
@@ -425,7 +394,7 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 			cfg->show_processes = true;
 			break;
 		case 't':
-			if (parse_positive_int(optarg, &cfg->top_n) != 0) {
+			if (parse_int_in_range(optarg, 1, 1000, &cfg->top_n) != 0) {
 				fprintf(stderr, "Invalid top value: %s\n", optarg);
 				return -1;
 			}
