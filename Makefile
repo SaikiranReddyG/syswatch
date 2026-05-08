@@ -1,7 +1,7 @@
 CC := cc
 TARGET := syswatch
 SRC_DIR := src
-SRCS := $(wildcard $(SRC_DIR)/*.c)
+SRCS := $(filter-out $(SRC_DIR)/display.c,$(wildcard $(SRC_DIR)/*.c))
 OBJS := $(SRCS:.c=.o)
 
 CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)

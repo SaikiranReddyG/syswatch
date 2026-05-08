@@ -1,0 +1,25 @@
+config_version: "1.0"
+
+poll_interval_seconds: 2
+
+collect:
+  cpu: true
+  memory: true
+  disk: true
+  network: true
+  load: true
+  processes: false
+
+output:
+  type: http_post
+  url: "http://127.0.0.1:8765/events"
+  batch_size: 10
+  batch_interval_seconds: 1
+  retry_max_attempts: 3
+  retry_backoff_seconds: 1
+
+log:
+  level: info
+  destination: stderr
+
+host_override: ""

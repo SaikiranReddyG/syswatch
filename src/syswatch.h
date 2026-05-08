@@ -9,6 +9,7 @@
 #define DEFAULT_REFRESH_INTERVAL 1
 #define DEFAULT_ITERATIONS 0
 #define DEFAULT_TOP_N 5
+#define SYSWATCH_VERSION "0.1.1"
 
 #define MAX_INTERFACES 32
 #define MAX_DISKS 32
@@ -31,10 +32,6 @@ typedef enum {
 /* Per-collector warm-up state */
 typedef struct {
 	bool has_previous_sample;
-	time_t last_sample_time_mono;
-	unsigned long long cpu_total_prev;
-	unsigned long long disk_total_sectors_prev;
-	unsigned long long net_total_bytes_prev;
 } collector_state_t;
 
 /* Event queue entry (producer-consumer bounded buffer) */
@@ -222,14 +219,6 @@ int net_read_snapshot(net_snapshot_t *out, bool include_loopback);
 int net_compute_stats(const net_snapshot_t *prev, const net_snapshot_t *curr, int interval_sec, net_stats_t *out);
 
 int process_read_list(process_list_t *out, process_sort_mode_t sort_mode, int limit);
-
-void display_print_header(const syswatch_config_t *cfg);
-void display_print_row(const syswatch_config_t *cfg,
-	const cpu_stats_t *cpu,
-	const memory_stats_t *mem,
-	const disk_stats_t *disk,
-	const net_stats_t *net,
-	const process_list_t *plist);
 
 int read_first_line(const char *path, char *buf, size_t size);
 char *trim_whitespace(char *s);

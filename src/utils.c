@@ -188,11 +188,13 @@ void format_rfc3339(struct timespec *ts, char *buf, size_t len)
 	/* Format as ISO 8601: YYYY-MM-DDTHH:MM:SS.mmm+HH:MM */
 	strftime(iso_buf, sizeof(iso_buf), "%Y-%m-%dT%H:%M:%S", tm_now);
 
-	/* Timezone offset (use __tm_gmtoff on Linux glibc) */
-	long offset = tm_now->__tm_gmtoff;
-	int hours = offset / 3600;
-	int minutes = (labs(offset) % 3600) / 60;
-	snprintf(tz_buf, sizeof(tz_buf), "%+03d:%02d", hours, minutes);
+	/* Timezone offset */
+	if (strftime(tz_buf, sizeof(tz_buf), "%z", tm_now) == 5) {
+		memmove(tz_buf + 3, tz_buf + 2, 3);
+		tz_buf[3] = ':';
+	} else {
+		snprintf(tz_buf, sizeof(tz_buf), "Z");
+	}
 
 	/* Combine with nanoseconds to milliseconds */
 	unsigned int msec = ts->tv_nsec / 1000000;
