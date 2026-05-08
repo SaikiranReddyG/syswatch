@@ -15,6 +15,14 @@ static volatile sig_atomic_t g_stop = 0;
 static pthread_t g_collector_thread;
 static pthread_t g_delivery_thread;
 
+/* Runtime context kept separate from user-facing config */
+typedef struct {
+	syswatch_config_t *cfg;
+	event_queue_t *event_queue;
+	internal_metrics_t internal_metrics;
+	collector_state_t collector_state;
+} run_context_t;
+
 static void resolve_event_host(const syswatch_config_t *cfg, char *host_json, size_t host_json_size)
 {
 	char hostbuf[128];
@@ -107,20 +115,17 @@ void init_default_config(syswatch_config_t *cfg)
 	cfg->config_path[0] = '\0';
 	cfg->validate_only = false;
 	
-	/* Initialize event queue and collector state */
-	cfg->event_queue = queue_create();
-	memset(&cfg->collector_state, 0, sizeof(cfg->collector_state));
-	cfg->collector_state.has_previous_sample = false;
-	memset(&cfg->internal_metrics, 0, sizeof(cfg->internal_metrics));
+	/* Runtime state is initialized in main() inside a run_context_t. */
 }
 
 /* Collector thread: reads metrics continuously and enqueues JSON events */
 static void *collector_thread(void *arg)
 {
-	syswatch_config_t *cfg = (syswatch_config_t *)arg;
-	if (!cfg) {
+	run_context_t *ctx = (run_context_t *)arg;
+	if (!ctx || !ctx->cfg) {
 		return NULL;
 	}
+	syswatch_config_t *cfg = ctx->cfg;
 
 	cpu_snapshot_t cpu_prev, cpu_curr;
 	cpu_stats_t cpu_stats;
@@ -155,7 +160,7 @@ static void *collector_thread(void *arg)
 		snprintf(json, sizeof(json),
 			"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.lifecycle.warming_up\",\"severity\":\"info\",\"payload\":{}}",
 			rfc_ts, host_json);
-		queue_enqueue(cfg->event_queue, json, strlen(json));
+		queue_enqueue(ctx->event_queue, json, strlen(json));
 	}
 
 	/* Read baseline samples */
@@ -200,11 +205,11 @@ static void *collector_thread(void *arg)
 			snprintf(json, sizeof(json),
 				"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.ready\",\"severity\":\"info\",\"payload\":{}}",
 				rfc_ts, host_json);
-			queue_enqueue(cfg->event_queue, json, strlen(json));
+			queue_enqueue(ctx->event_queue, json, strlen(json));
 			first_iteration = false;
 		}
 
-		cfg->collector_state.has_previous_sample = true;
+		ctx->collector_state.has_previous_sample = true;
 
 		/* Collect metrics */
 		const cpu_stats_t *cpu_ptr = NULL;
@@ -254,7 +259,7 @@ static void *collector_thread(void *arg)
 				snprintf(json, sizeof(json),
 					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"system.metrics.cpu\",\"severity\":\"info\",\"payload\":{\"usage_pct\":%.1f,\"user_pct\":%.1f,\"system_pct\":%.1f,\"idle_pct\":%.1f,\"core_count\":%d}}",
 					rfc_ts, host_json, cpu_ptr->usage_pct, cpu_ptr->user_pct, cpu_ptr->system_pct, cpu_ptr->idle_pct, cpu_ptr->core_count);
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			if (mem_ptr) {
@@ -262,7 +267,7 @@ static void *collector_thread(void *arg)
 				snprintf(json, sizeof(json),
 					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"system.metrics.memory\",\"severity\":\"info\",\"payload\":{\"mem_total\":%llu,\"mem_available\":%llu,\"mem_free\":%llu,\"mem_used\":%llu,\"swap_total\":%llu,\"swap_free\":%llu,\"swap_used\":%llu}}",
 					rfc_ts, host_json, mem_ptr->mem_total, mem_ptr->mem_available, mem_ptr->mem_free, mem_ptr->mem_used, mem_ptr->swap_total, mem_ptr->swap_free, mem_ptr->swap_used);
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			if (disk_ptr) {
@@ -277,7 +282,7 @@ static void *collector_thread(void *arg)
 						disk_ptr->items[i].name, disk_ptr->items[i].read_bps, disk_ptr->items[i].write_bps);
 				}
 				snprintf(json + pos, sizeof(json) - pos, "]}}");
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			if (net_ptr) {
@@ -292,20 +297,20 @@ static void *collector_thread(void *arg)
 						net_ptr->items[i].name, net_ptr->items[i].rx_bps, net_ptr->items[i].tx_bps);
 				}
 				snprintf(json + pos, sizeof(json) - pos, "]}}");
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			/* Emit self-metrics */
 			{
-				cfg->internal_metrics.buffer_depth = queue_size(cfg->event_queue);
-				cfg->internal_metrics.events_dropped_total = queue_dropped_count(cfg->event_queue);
+				ctx->internal_metrics.buffer_depth = queue_size(ctx->event_queue);
+				ctx->internal_metrics.events_dropped_total = queue_dropped_count(ctx->event_queue);
 
 				char json[1024];
 				snprintf(json, sizeof(json),
 					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.internal\",\"severity\":\"info\",\"payload\":{\"buffer_depth\":%llu,\"events_dropped_total\":%llu,\"events_emitted_total\":%llu}}",
-					rfc_ts, host_json, cfg->internal_metrics.buffer_depth, cfg->internal_metrics.events_dropped_total, cfg->internal_metrics.events_emitted_total);
-				queue_enqueue(cfg->event_queue, json, strlen(json));
-				cfg->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
+					rfc_ts, host_json, ctx->internal_metrics.buffer_depth, ctx->internal_metrics.events_dropped_total, ctx->internal_metrics.events_emitted_total);
+				queue_enqueue(ctx->event_queue, json, strlen(json));
+				ctx->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
 			}
 
 		}
@@ -319,17 +324,17 @@ static void *collector_thread(void *arg)
 /* Delivery thread: drains queue and sends events to output backends */
 static void *delivery_thread(void *arg)
 {
-	syswatch_config_t *cfg = (syswatch_config_t *)arg;
-	if (!cfg || !cfg->event_queue) {
+	run_context_t *ctx = (run_context_t *)arg;
+	if (!ctx || !ctx->event_queue) {
 		return NULL;
 	}
 
 	event_queue_entry_t batch[1000];
 	int batch_count = 0;
 
-	while (!g_stop || queue_size(cfg->event_queue) > 0) {
+	while (!g_stop || queue_size(ctx->event_queue) > 0) {
 		/* Dequeue batch */
-		if (queue_dequeue_batch(cfg->event_queue, batch, 1000, &batch_count) == 0 && batch_count > 0) {
+		if (queue_dequeue_batch(ctx->event_queue, batch, 1000, &batch_count) == 0 && batch_count > 0) {
 			for (int i = 0; i < batch_count; i++) {
 				output_emit_event(batch[i].json_data);
 			}
@@ -558,15 +563,24 @@ int main(int argc, char **argv)
 	signal(SIGINT, handle_sigint);
 	signal(SIGTERM, handle_sigint);
 
+	/* Create runtime context and spawn threads */
+	run_context_t run_ctx;
+	memset(&run_ctx, 0, sizeof(run_ctx));
+	run_ctx.cfg = &cfg;
+	run_ctx.event_queue = queue_create();
+	memset(&run_ctx.collector_state, 0, sizeof(run_ctx.collector_state));
+	run_ctx.collector_state.has_previous_sample = false;
+	memset(&run_ctx.internal_metrics, 0, sizeof(run_ctx.internal_metrics));
+
 	/* Spawn collector thread (reads metrics, enqueues events) */
-	if (pthread_create(&g_collector_thread, NULL, collector_thread, &cfg) != 0) {
+	if (pthread_create(&g_collector_thread, NULL, collector_thread, &run_ctx) != 0) {
 		fprintf(stderr, "failed to create collector thread\n");
 		output_shutdown();
 		return 5;
 	}
 
 	/* Spawn delivery thread (drains queue, sends to outputs) */
-	if (pthread_create(&g_delivery_thread, NULL, delivery_thread, &cfg) != 0) {
+	if (pthread_create(&g_delivery_thread, NULL, delivery_thread, &run_ctx) != 0) {
 		fprintf(stderr, "failed to create delivery thread\n");
 		g_stop = 1;
 		pthread_join(g_collector_thread, NULL);
@@ -586,8 +600,8 @@ int main(int argc, char **argv)
 	/* Final shutdown */
 	output_shutdown();
 
-	if (cfg.event_queue) {
-		queue_destroy(cfg.event_queue);
+	if (run_ctx.event_queue) {
+		queue_destroy(run_ctx.event_queue);
 	}
 
 	return rc;

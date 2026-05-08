@@ -93,10 +93,7 @@ typedef struct {
 
 	char host_override[128];
 	
-	/* Thread-safe event queue and self-metrics */
-	event_queue_t *event_queue;
-	internal_metrics_t internal_metrics;
-	collector_state_t collector_state;
+	/* Runtime-only state is maintained separately from user config. */
 } syswatch_config_t;
 
 typedef struct {
