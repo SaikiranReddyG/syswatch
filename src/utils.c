@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <math.h>
 
 int read_first_line(const char *path, char *buf, size_t size)
 {
@@ -118,24 +117,7 @@ void format_bytes(double bytes, char *buf, size_t len)
 	}
 }
 
-void format_timestamp(char *buf, size_t len)
-{
-	time_t now;
-	struct tm *tm_now;
-
-	if (!buf || len == 0) {
-		return;
-	}
-
-	now = time(NULL);
-	tm_now = localtime(&now);
-	if (tm_now == NULL) {
-		snprintf(buf, len, "--:--:--");
-		return;
-	}
-
-	strftime(buf, len, "%H:%M:%S", tm_now);
-}
+/* display renderer removed; timestamp formatting via format_rfc3339 is used for events. */
 
 /* Get monotonic time (for interval calculations, immune to clock adjustments) */
 int get_mono_time(struct timespec *ts)
@@ -188,69 +170,17 @@ void format_rfc3339(struct timespec *ts, char *buf, size_t len)
 	/* Format as ISO 8601: YYYY-MM-DDTHH:MM:SS.mmm+HH:MM */
 	strftime(iso_buf, sizeof(iso_buf), "%Y-%m-%dT%H:%M:%S", tm_now);
 
-	/* Timezone offset (use __tm_gmtoff on Linux glibc) */
-	long offset = tm_now->__tm_gmtoff;
-	int hours = offset / 3600;
-	int minutes = (labs(offset) % 3600) / 60;
-	snprintf(tz_buf, sizeof(tz_buf), "%+03d:%02d", hours, minutes);
+	/* Timezone offset */
+	if (strftime(tz_buf, sizeof(tz_buf), "%z", tm_now) == 5) {
+		memmove(tz_buf + 3, tz_buf + 2, 3);
+		tz_buf[3] = ':';
+	} else {
+		snprintf(tz_buf, sizeof(tz_buf), "Z");
+	}
 
 	/* Combine with nanoseconds to milliseconds */
 	unsigned int msec = ts->tv_nsec / 1000000;
 	snprintf(buf, len, "%s.%03u%s", iso_buf, msec, tz_buf);
 }
 
-/* Calculate delta between two timespec values in seconds */
-double timespec_delta_seconds(struct timespec *prev, struct timespec *curr)
-{
-	if (!prev || !curr) {
-		return 0.0;
-	}
-
-	long sec_diff = curr->tv_sec - prev->tv_sec;
-	long nsec_diff = curr->tv_nsec - prev->tv_nsec;
-
-	double delta = (double)sec_diff + (double)nsec_diff / 1e9;
-	return delta > 0.0 ? delta : 0.0;
-}
-
-/* Rolling statistics sliding buffer */
-void rolling_stat_add(rolling_stat_t *stat, double val)
-{
-	if (!stat) return;
-	stat->samples[stat->head] = val;
-	stat->head = (stat->head + 1) % ANOMALY_WINDOW;
-	if (stat->count < ANOMALY_WINDOW) {
-		stat->count++;
-	}
-}
-
-bool rolling_stat_check(const rolling_stat_t *stat, double val, double *mean_out, double *stddev_out)
-{
-	if (!stat || stat->count < 10) { /* Need a baseline cache size to measure standard deviations realistically */
-		return false;
-	}
-
-	double sum = 0.0;
-	for (int i = 0; i < stat->count; i++) {
-		sum += stat->samples[i];
-	}
-	double mean = sum / stat->count;
-
-	double var_sum = 0.0;
-	for (int i = 0; i < stat->count; i++) {
-		double diff = stat->samples[i] - mean;
-		var_sum += diff * diff;
-	}
-	double variance = var_sum / stat->count;
-	double stddev = sqrt(variance);
-
-	if (mean_out) *mean_out = mean;
-	if (stddev_out) *stddev_out = stddev;
-
-	if (stddev < 0.001) { /* Skip flat lines */
-		return false;
-	}
-
-	return (val > mean + (3.0 * stddev));
-}
 

@@ -12,9 +12,34 @@
 #include <netdb.h>
 
 static volatile sig_atomic_t g_stop = 0;
-static syswatch_config_t *g_cfg = NULL;  /* Global config for signal handler and threads */
 static pthread_t g_collector_thread;
 static pthread_t g_delivery_thread;
+
+/* Runtime context kept separate from user-facing config */
+typedef struct {
+	syswatch_config_t *cfg;
+	event_queue_t *event_queue;
+	internal_metrics_t internal_metrics;
+	collector_state_t collector_state;
+} run_context_t;
+
+static void resolve_event_host(const syswatch_config_t *cfg, char *host_json, size_t host_json_size)
+{
+	char hostbuf[128];
+
+	if (!host_json || host_json_size == 0) {
+		return;
+	}
+
+	hostbuf[0] = '\0';
+	if (cfg && cfg->host_override[0] != '\0') {
+		snprintf(hostbuf, sizeof(hostbuf), "%s", cfg->host_override);
+	} else if (gethostname(hostbuf, sizeof(hostbuf)) != 0) {
+		snprintf(hostbuf, sizeof(hostbuf), "unknown");
+	}
+
+	json_escape_string(hostbuf, host_json, host_json_size);
+}
 
 static void handle_sigint(int sig)
 {
@@ -22,7 +47,7 @@ static void handle_sigint(int sig)
 	g_stop = 1;
 }
 
-static int parse_positive_int(const char *s, int *out)
+static int parse_int_in_range(const char *s, int min_value, int max_value, int *out)
 {
 	long v;
 	char *endptr;
@@ -33,52 +58,11 @@ static int parse_positive_int(const char *s, int *out)
 
 	errno = 0;
 	v = strtol(s, &endptr, 10);
-	if (errno != 0 || endptr == s || *endptr != '\0' || v <= 0 || v > 86400) {
+	if (errno != 0 || endptr == s || *endptr != '\0' || v < min_value || v > max_value) {
 		return -1;
 	}
 
 	*out = (int)v;
-	return 0;
-}
-
-
-static int parse_non_negative_int(const char *s, int *out)
-{
-	long v;
-	char *endptr;
-
-	if (!s || !out) {
-		return -1;
-	}
-
-	errno = 0;
-	v = strtol(s, &endptr, 10);
-	if (errno != 0 || endptr == s || *endptr != '\0' || v < 0 || v > 1000000) {
-		return -1;
-	}
-
-	*out = (int)v;
-	return 0;
-}
-
-static int sleep_interval(int seconds)
-{
-	unsigned int remaining;
-
-	remaining = (unsigned int)seconds;
-	while (remaining > 0) {
-		remaining = sleep(remaining);
-		if (g_stop) {
-			return -1;
-		}
-	}
-
-	/* Flush and shutdown output cleanly */
-	/* Flush output buffers but keep the backend active (don't shutdown),
-	 * so stateful backends like http_post retain their configuration
-	 * across sleep intervals. */
-	output_flush();
-
 	return 0;
 }
 
@@ -111,20 +95,17 @@ void init_default_config(syswatch_config_t *cfg)
 	cfg->config_path[0] = '\0';
 	cfg->validate_only = false;
 	
-	/* Initialize event queue and collector state */
-	cfg->event_queue = queue_create();
-	memset(&cfg->collector_state, 0, sizeof(cfg->collector_state));
-	cfg->collector_state.has_previous_sample = false;
-	memset(&cfg->internal_metrics, 0, sizeof(cfg->internal_metrics));
+	/* Runtime state is initialized in main() inside a run_context_t. */
 }
 
 /* Collector thread: reads metrics continuously and enqueues JSON events */
 static void *collector_thread(void *arg)
 {
-	syswatch_config_t *cfg = (syswatch_config_t *)arg;
-	if (!cfg) {
+	run_context_t *ctx = (run_context_t *)arg;
+	if (!ctx || !ctx->cfg) {
 		return NULL;
 	}
+	syswatch_config_t *cfg = ctx->cfg;
 
 	cpu_snapshot_t cpu_prev, cpu_curr;
 	cpu_stats_t cpu_stats;
@@ -133,13 +114,10 @@ static void *collector_thread(void *arg)
 	net_snapshot_t net_prev, net_curr;
 	net_stats_t net_stats;
 	memory_stats_t mem_stats;
-	process_list_t proc_list;
 
 	bool cpu_ready = false, disk_ready = false, net_ready = false;
 	int rows = 0;
 	bool first_iteration = true;
-	struct timespec last_mono;
-	struct timespec mono_now;
 
 	memset(&cpu_prev, 0, sizeof(cpu_prev));
 	memset(&cpu_curr, 0, sizeof(cpu_curr));
@@ -154,26 +132,15 @@ static void *collector_thread(void *arg)
 		struct timespec ts;
 		char rfc_ts[64];
 		char host_json[256];
-		char hostbuf[128];
 
 		get_wall_time(&ts);
 		format_rfc3339(&ts, rfc_ts, sizeof(rfc_ts));
-
-		if (cfg->host_override[0] != '\0') {
-			strncpy(hostbuf, cfg->host_override, sizeof(hostbuf)-1);
-			hostbuf[sizeof(hostbuf)-1] = '\0';
-		} else {
-			if (gethostname(hostbuf, sizeof(hostbuf)) != 0) {
-				strncpy(hostbuf, "unknown", sizeof(hostbuf));
-				hostbuf[sizeof(hostbuf)-1] = '\0';
-			}
-		}
-		json_escape_string(hostbuf, host_json, sizeof(host_json));
+		resolve_event_host(cfg, host_json, sizeof(host_json));
 
 		snprintf(json, sizeof(json),
-			"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.warming_up\",\"severity\":\"info\",\"payload\":{}}",
+			"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.lifecycle.warming_up\",\"severity\":\"info\",\"payload\":{}}",
 			rfc_ts, host_json);
-		queue_enqueue(cfg->event_queue, json, strlen(json));
+		queue_enqueue(ctx->event_queue, json, strlen(json));
 	}
 
 	/* Read baseline samples */
@@ -186,24 +153,12 @@ static void *collector_thread(void *arg)
 	if (cfg->show_network && net_read_snapshot(&net_prev, cfg->include_loopback) == 0) {
 		net_ready = true;
 	}
-	get_mono_time(&last_mono);
-
-	int current_interval = cfg->interval_sec;
-	bool high_res_active = false;
-	double high_res_remaining = 0.0;
-
-	rolling_stat_t cpu_rolling;
-	memset(&cpu_rolling, 0, sizeof(cpu_rolling));
 
 	while (!g_stop && (cfg->iterations == 0 || rows < cfg->iterations)) {
 		/* Sleep for configured interval */
-		if (sleep(current_interval) != 0 && g_stop) {
+		if (sleep(cfg->interval_sec) != 0 && g_stop) {
 			break;
 		}
-
-		get_mono_time(&mono_now);
-		double delta_sec = timespec_delta_seconds(&last_mono, &mono_now);
-		last_mono = mono_now;
 
 		/* Emit "ready" event on first real iteration */
 		if (first_iteration) {
@@ -211,38 +166,25 @@ static void *collector_thread(void *arg)
 			struct timespec ts;
 			char rfc_ts[64];
 			char host_json[256];
-			char hostbuf[128];
 
 			get_wall_time(&ts);
 			format_rfc3339(&ts, rfc_ts, sizeof(rfc_ts));
-
-			if (cfg->host_override[0] != '\0') {
-				strncpy(hostbuf, cfg->host_override, sizeof(hostbuf)-1);
-				hostbuf[sizeof(hostbuf)-1] = '\0';
-			} else {
-				if (gethostname(hostbuf, sizeof(hostbuf)) != 0) {
-					strncpy(hostbuf, "unknown", sizeof(hostbuf));
-					hostbuf[sizeof(hostbuf)-1] = '\0';
-				}
-			}
-			json_escape_string(hostbuf, host_json, sizeof(host_json));
+			resolve_event_host(cfg, host_json, sizeof(host_json));
 
 			snprintf(json, sizeof(json),
-				"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.ready\",\"severity\":\"info\",\"payload\":{}}",
+				"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.lifecycle.ready\",\"severity\":\"info\",\"payload\":{}}",
 				rfc_ts, host_json);
-			queue_enqueue(cfg->event_queue, json, strlen(json));
+			queue_enqueue(ctx->event_queue, json, strlen(json));
 			first_iteration = false;
 		}
 
-		cfg->collector_state.has_previous_sample = true;
+		ctx->collector_state.has_previous_sample = true;
 
 		/* Collect metrics */
 		const cpu_stats_t *cpu_ptr = NULL;
 		const memory_stats_t *mem_ptr = NULL;
 		const disk_stats_t *disk_ptr = NULL;
 		const net_stats_t *net_ptr = NULL;
-		const process_list_t *proc_ptr = NULL;
-
 		if (cfg->show_cpu && cpu_read_snapshot(&cpu_curr) == 0) {
 			if (cpu_ready && cpu_compute_stats(&cpu_prev, &cpu_curr, &cpu_stats) == 0) {
 				cpu_ptr = &cpu_stats;
@@ -271,51 +213,36 @@ static void *collector_thread(void *arg)
 			net_ready = true;
 		}
 
-		if (cfg->show_processes && process_read_list(&proc_list, cfg->process_sort, cfg->top_n) == 0) {
-			proc_ptr = &proc_list;
-		}
-
 		/* Emit JSON events for each metric category */
 		{
 			struct timespec ts;
 			char rfc_ts[64];
-			char hostbuf[128];
 			char host_json[256];
 
 			get_wall_time(&ts);
 			format_rfc3339(&ts, rfc_ts, sizeof(rfc_ts));
-
-			if (cfg->host_override[0] != '\0') {
-				strncpy(hostbuf, cfg->host_override, sizeof(hostbuf)-1);
-				hostbuf[sizeof(hostbuf)-1] = '\0';
-			} else {
-				if (gethostname(hostbuf, sizeof(hostbuf)) != 0) {
-					strncpy(hostbuf, "unknown", sizeof(hostbuf));
-					hostbuf[sizeof(hostbuf)-1] = '\0';
-				}
-			}
-			json_escape_string(hostbuf, host_json, sizeof(host_json));
+			resolve_event_host(cfg, host_json, sizeof(host_json));
 
 			if (cpu_ptr) {
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.cpu\",\"severity\":\"info\",\"payload\":{\"usage_pct\":%.1f,\"user_pct\":%.1f,\"system_pct\":%.1f,\"idle_pct\":%.1f,\"core_count\":%d}}",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"system.metrics.cpu\",\"severity\":\"info\",\"payload\":{\"usage_pct\":%.1f,\"user_pct\":%.1f,\"system_pct\":%.1f,\"idle_pct\":%.1f,\"core_count\":%d}}",
 					rfc_ts, host_json, cpu_ptr->usage_pct, cpu_ptr->user_pct, cpu_ptr->system_pct, cpu_ptr->idle_pct, cpu_ptr->core_count);
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			if (mem_ptr) {
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.memory\",\"severity\":\"info\",\"payload\":{\"mem_total\":%llu,\"mem_available\":%llu,\"mem_free\":%llu,\"mem_used\":%llu,\"swap_total\":%llu,\"swap_free\":%llu,\"swap_used\":%llu}}",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"system.metrics.memory\",\"severity\":\"info\",\"payload\":{\"mem_total\":%llu,\"mem_available\":%llu,\"mem_free\":%llu,\"mem_used\":%llu,\"swap_total\":%llu,\"swap_free\":%llu,\"swap_used\":%llu}}",
 					rfc_ts, host_json, mem_ptr->mem_total, mem_ptr->mem_available, mem_ptr->mem_free, mem_ptr->mem_used, mem_ptr->swap_total, mem_ptr->swap_free, mem_ptr->swap_used);
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			if (disk_ptr) {
 				char json[2048];
 				int pos = snprintf(json, sizeof(json),
-					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.disk\",\"severity\":\"info\",\"payload\":{\"disks\":[",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"system.metrics.disk\",\"severity\":\"info\",\"payload\":{\"disks\":[",
 					rfc_ts, host_json);
 				for (int i = 0; i < disk_ptr->count && pos < (int)sizeof(json) - 512; i++) {
 					if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
@@ -324,13 +251,13 @@ static void *collector_thread(void *arg)
 						disk_ptr->items[i].name, disk_ptr->items[i].read_bps, disk_ptr->items[i].write_bps);
 				}
 				snprintf(json + pos, sizeof(json) - pos, "]}}");
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			if (net_ptr) {
 				char json[2048];
 				int pos = snprintf(json, sizeof(json),
-					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.metrics.network\",\"severity\":\"info\",\"payload\":{\"interfaces\":[",
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"system.metrics.network\",\"severity\":\"info\",\"payload\":{\"interfaces\":[",
 					rfc_ts, host_json);
 				for (int i = 0; i < net_ptr->count && pos < (int)sizeof(json) - 512; i++) {
 					if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
@@ -339,63 +266,22 @@ static void *collector_thread(void *arg)
 						net_ptr->items[i].name, net_ptr->items[i].rx_bps, net_ptr->items[i].tx_bps);
 				}
 				snprintf(json + pos, sizeof(json) - pos, "]}}");
-				queue_enqueue(cfg->event_queue, json, strlen(json));
+				queue_enqueue(ctx->event_queue, json, strlen(json));
 			}
 
 			/* Emit self-metrics */
 			{
-				cfg->internal_metrics.buffer_depth = queue_size(cfg->event_queue);
-				cfg->internal_metrics.events_dropped_total = queue_dropped_count(cfg->event_queue);
+				ctx->internal_metrics.buffer_depth = queue_size(ctx->event_queue);
+				ctx->internal_metrics.events_dropped_total = queue_dropped_count(ctx->event_queue);
 
 				char json[1024];
 				snprintf(json, sizeof(json),
-					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.internal\",\"severity\":\"info\",\"payload\":{\"buffer_depth\":%llu,\"events_dropped_total\":%llu,\"events_emitted_total\":%llu}}",
-					rfc_ts, host_json, cfg->internal_metrics.buffer_depth, cfg->internal_metrics.events_dropped_total, cfg->internal_metrics.events_emitted_total);
-				queue_enqueue(cfg->event_queue, json, strlen(json));
-				cfg->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
+					"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"" SYSWATCH_VERSION "\",\"event_type\":\"syswatch.internal\",\"severity\":\"info\",\"payload\":{\"buffer_depth\":%llu,\"events_dropped_total\":%llu,\"events_emitted_total\":%llu}}",
+					rfc_ts, host_json, ctx->internal_metrics.buffer_depth, ctx->internal_metrics.events_dropped_total, ctx->internal_metrics.events_emitted_total);
+				queue_enqueue(ctx->event_queue, json, strlen(json));
+				ctx->internal_metrics.events_emitted_total += 5;  /* 4 metrics + 1 self-metric */
 			}
 
-			/* Evaluate Anomaly Detection for CPU */
-			if (cpu_ptr) {
-				double mean, stddev;
-				if (rolling_stat_check(&cpu_rolling, cpu_ptr->usage_pct, &mean, &stddev)) {
-					char json[1024];
-					snprintf(json, sizeof(json),
-						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.anomaly\",\"severity\":\"high\",\"payload\":{\"metric\":\"cpu.usage\",\"value\":%.1f,\"expected\":%.1f,\"sigma\":%.1f}}",
-						rfc_ts, host_json, cpu_ptr->usage_pct, mean, stddev);
-					queue_enqueue(cfg->event_queue, json, strlen(json));
-				}
-				rolling_stat_add(&cpu_rolling, cpu_ptr->usage_pct);
-			}
-
-			/* Evaluate Adaptive Sampling */
-			bool is_interesting = false;
-			if (cpu_ptr && cpu_ptr->usage_pct > 80.0) is_interesting = true;
-			if (mem_ptr && mem_ptr->mem_total > 0 && ((double)mem_ptr->mem_used / (double)mem_ptr->mem_total) > 0.90) is_interesting = true;
-
-			if (is_interesting) {
-				high_res_remaining = 30.0;
-				if (!high_res_active && cfg->interval_sec > 1) {
-					high_res_active = true;
-					current_interval = 1;
-					char json[1024];
-					snprintf(json, sizeof(json),
-						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.high_resolution_mode\",\"severity\":\"medium\",\"payload\":{\"reason\":\"load_threshold_exceeded\"}}",
-						rfc_ts, host_json);
-					queue_enqueue(cfg->event_queue, json, strlen(json));
-				}
-			} else if (high_res_active) {
-				high_res_remaining -= delta_sec;
-				if (high_res_remaining <= 0.0) {
-					high_res_active = false;
-					current_interval = cfg->interval_sec;
-					char json[1024];
-					snprintf(json, sizeof(json),
-						"{\"schema_version\":\"1.0\",\"timestamp\":\"%s\",\"host\":\"%s\",\"source\":\"syswatch\",\"source_version\":\"0.1.1\",\"event_type\":\"syswatch.lifecycle.normal_resolution_mode\",\"severity\":\"info\",\"payload\":{\"reason\":\"load_normalized\"}}",
-						rfc_ts, host_json);
-					queue_enqueue(cfg->event_queue, json, strlen(json));
-				}
-			}
 		}
 
 		rows++;
@@ -407,24 +293,25 @@ static void *collector_thread(void *arg)
 /* Delivery thread: drains queue and sends events to output backends */
 static void *delivery_thread(void *arg)
 {
-	syswatch_config_t *cfg = (syswatch_config_t *)arg;
-	if (!cfg || !cfg->event_queue) {
+	run_context_t *ctx = (run_context_t *)arg;
+	if (!ctx || !ctx->event_queue) {
 		return NULL;
 	}
 
 	event_queue_entry_t batch[1000];
 	int batch_count = 0;
 
-	while (!g_stop || queue_size(cfg->event_queue) > 0) {
+	while (!g_stop || queue_size(ctx->event_queue) > 0) {
 		/* Dequeue batch */
-		if (queue_dequeue_batch(cfg->event_queue, batch, 1000, &batch_count) == 0 && batch_count > 0) {
+		if (queue_dequeue_batch(ctx->event_queue, batch, 1000, &batch_count) == 0 && batch_count > 0) {
 			for (int i = 0; i < batch_count; i++) {
 				output_emit_event(batch[i].json_data);
 			}
 			output_flush();
 		} else {
 			/* No events available, sleep briefly to avoid busy-wait */
-			usleep(10000);  /* 10ms sleep */
+			struct timespec pause = {0, 10 * 1000 * 1000};
+			nanosleep(&pause, NULL);
 		}
 	}
 
@@ -489,13 +376,13 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 		(void)long_idx;
 		switch (opt) {
 		case 'i':
-			if (parse_positive_int(optarg, &cfg->interval_sec) != 0) {
+			if (parse_int_in_range(optarg, 1, 86400, &cfg->interval_sec) != 0) {
 				fprintf(stderr, "Invalid interval: %s\n", optarg);
 				return -1;
 			}
 			break;
 		case 'n':
-			if (parse_non_negative_int(optarg, &cfg->iterations) != 0) {
+			if (parse_int_in_range(optarg, 0, 1000000, &cfg->iterations) != 0) {
 				fprintf(stderr, "Invalid iterations: %s\n", optarg);
 				return -1;
 			}
@@ -507,7 +394,7 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 			cfg->show_processes = true;
 			break;
 		case 't':
-			if (parse_positive_int(optarg, &cfg->top_n) != 0) {
+			if (parse_int_in_range(optarg, 1, 1000, &cfg->top_n) != 0) {
 				fprintf(stderr, "Invalid top value: %s\n", optarg);
 				return -1;
 			}
@@ -532,7 +419,7 @@ int parse_args(int argc, char **argv, syswatch_config_t *cfg)
 			cfg->validate_only = true;
 			break;
 		case 2003:
-			printf("syswatch 0.1.0\n");
+			printf("syswatch %s\n", SYSWATCH_VERSION);
 			exit(0);
 		case 1000:
 			cfg->show_cpu = false;
@@ -645,18 +532,24 @@ int main(int argc, char **argv)
 	signal(SIGINT, handle_sigint);
 	signal(SIGTERM, handle_sigint);
 
-	/* Store global config for signal handler and threads */
-	g_cfg = &cfg;
+	/* Create runtime context and spawn threads */
+	run_context_t run_ctx;
+	memset(&run_ctx, 0, sizeof(run_ctx));
+	run_ctx.cfg = &cfg;
+	run_ctx.event_queue = queue_create();
+	memset(&run_ctx.collector_state, 0, sizeof(run_ctx.collector_state));
+	run_ctx.collector_state.has_previous_sample = false;
+	memset(&run_ctx.internal_metrics, 0, sizeof(run_ctx.internal_metrics));
 
 	/* Spawn collector thread (reads metrics, enqueues events) */
-	if (pthread_create(&g_collector_thread, NULL, collector_thread, &cfg) != 0) {
+	if (pthread_create(&g_collector_thread, NULL, collector_thread, &run_ctx) != 0) {
 		fprintf(stderr, "failed to create collector thread\n");
 		output_shutdown();
 		return 5;
 	}
 
 	/* Spawn delivery thread (drains queue, sends to outputs) */
-	if (pthread_create(&g_delivery_thread, NULL, delivery_thread, &cfg) != 0) {
+	if (pthread_create(&g_delivery_thread, NULL, delivery_thread, &run_ctx) != 0) {
 		fprintf(stderr, "failed to create delivery thread\n");
 		g_stop = 1;
 		pthread_join(g_collector_thread, NULL);
@@ -676,8 +569,8 @@ int main(int argc, char **argv)
 	/* Final shutdown */
 	output_shutdown();
 
-	if (cfg.event_queue) {
-		queue_destroy(cfg.event_queue);
+	if (run_ctx.event_queue) {
+		queue_destroy(run_ctx.event_queue);
 	}
 
 	return rc;

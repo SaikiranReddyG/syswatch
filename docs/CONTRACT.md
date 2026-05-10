@@ -23,7 +23,7 @@ Example CPU event:
   "schema_version": "1.0",
   "timestamp": "2026-04-28T14:23:01.234+02:00",
   "source": "syswatch",
-  "source_version": "0.1.0",
+  "source_version": "0.1.1",
   "host": "myhost",
   "event_type": "system.metrics.cpu",
   "severity": "info",

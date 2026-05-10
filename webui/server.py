@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 WEBUI_DIR = Path(__file__).resolve().parent
 INDEX_HTML = WEBUI_DIR / "index.html"
+SYSWATCH_SOURCE_VERSION = "0.1.1"
 
 
 class EventStore:
@@ -164,7 +165,7 @@ class SysWatchHandler(BaseHTTPRequestHandler):
                     "schema_version": "1.0",
                     "timestamp": now_ts,
                     "source": "syswatch-demo",
-                    "source_version": "0.1.0",
+                    "source_version": SYSWATCH_SOURCE_VERSION,
                     "host": "demo-host",
                     "event_type": "system.metrics.cpu",
                     "severity": "info",
@@ -180,7 +181,7 @@ class SysWatchHandler(BaseHTTPRequestHandler):
                     "schema_version": "1.0",
                     "timestamp": now_ts,
                     "source": "syswatch-demo",
-                    "source_version": "0.1.0",
+                    "source_version": SYSWATCH_SOURCE_VERSION,
                     "host": "demo-host",
                     "event_type": "system.metrics.memory",
                     "severity": "info",
@@ -194,7 +195,7 @@ class SysWatchHandler(BaseHTTPRequestHandler):
                     "schema_version": "1.0",
                     "timestamp": now_ts,
                     "source": "syswatch-demo",
-                    "source_version": "0.1.0",
+                    "source_version": SYSWATCH_SOURCE_VERSION,
                     "host": "demo-host",
                     "event_type": "system.metrics.disk",
                     "severity": "info",
@@ -207,7 +208,7 @@ class SysWatchHandler(BaseHTTPRequestHandler):
                     "schema_version": "1.0",
                     "timestamp": now_ts,
                     "source": "syswatch-demo",
-                    "source_version": "0.1.0",
+                    "source_version": SYSWATCH_SOURCE_VERSION,
                     "host": "demo-host",
                     "event_type": "system.metrics.network",
                     "severity": "info",

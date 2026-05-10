@@ -16,24 +16,7 @@ typedef enum {
 	SECTION_LOG
 } config_section_t;
 
-static char *xstrdup(const char *text)
-{
-	size_t len;
-	char *copy;
-
-	if (!text) {
-		return NULL;
-	}
-
-	len = strlen(text) + 1;
-	copy = malloc(len);
-	if (!copy) {
-		return NULL;
-	}
-
-	memcpy(copy, text, len);
-	return copy;
-}
+/* Use standard strdup instead of local xstrdup helper */
 
 static void set_error(char **err, const char *fmt, ...)
 {
@@ -51,18 +34,18 @@ static void set_error(char **err, const char *fmt, ...)
 	va_end(ap);
 
 	if (needed < 0) {
-		*err = xstrdup("config error");
+		*err = strdup("config error");
 		return;
 	}
 
 	if ((size_t)needed < sizeof(stackbuf)) {
-		*err = xstrdup(stackbuf);
+		*err = strdup(stackbuf);
 		return;
 	}
 
 	heapbuf = malloc((size_t)needed + 1);
 	if (!heapbuf) {
-		*err = xstrdup("config error: out of memory");
+		*err = strdup("config error: out of memory");
 		return;
 	}
 
@@ -249,6 +232,10 @@ static int set_output_key(syswatch_config_t *cfg, const char *key, char *value, 
 			set_error(err, "config error at line %d: retry_backoff_seconds must be a non-negative integer, got '%s'", line_no, value);
 			return -1;
 		}
+		return 0;
+	}
+	if (strcmp(key, "auth_header") == 0) {
+		strncpy(cfg->output_auth_header, value, sizeof(cfg->output_auth_header) - 1);
 		return 0;
 	}
 

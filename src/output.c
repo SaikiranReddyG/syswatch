@@ -22,6 +22,7 @@ typedef struct {
 	char output_path[256];
 
 	char output_url[256];
+	char auth_header[256];
 	int batch_size;
 	int batch_interval_seconds;
 	int retry_max_attempts;
@@ -36,25 +37,6 @@ typedef struct {
 } output_state_t;
 
 static output_state_t g_output;
-
-static char *xstrdup(const char *text)
-{
-	size_t len;
-	char *copy;
-
-	if (!text) {
-		return NULL;
-	}
-
-	len = strlen(text) + 1;
-	copy = malloc(len);
-	if (!copy) {
-		return NULL;
-	}
-
-	memcpy(copy, text, len);
-	return copy;
-}
 
 void json_escape_string(const char *input, char *output, size_t output_size)
 {
@@ -153,28 +135,21 @@ static int batch_ensure_capacity(size_t needed)
 	return 0;
 }
 
-static double monotonic_seconds(void)
-{
-	struct timespec now;
-
-	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-		return 0.0;
-	}
-
-	return (double)now.tv_sec + ((double)now.tv_nsec / 1000000000.0);
-}
-
 static double batch_age_seconds(void)
 {
 	double started;
 	double now;
+	struct timespec now_ts;
 
 	if (!g_output.batch_started) {
 		return 0.0;
 	}
 
 	started = (double)g_output.batch_started_at.tv_sec + ((double)g_output.batch_started_at.tv_nsec / 1000000000.0);
-	now = monotonic_seconds();
+	if (get_mono_time(&now_ts) != 0) {
+		return 0.0;
+	}
+	now = (double)now_ts.tv_sec + ((double)now_ts.tv_nsec / 1000000000.0);
 	return now - started;
 }
 
@@ -232,6 +207,9 @@ static int http_post_batch(void)
 		struct curl_slist *headers = NULL;
 
 		headers = curl_slist_append(headers, "Content-Type: application/json");
+		if (g_output.auth_header[0] != '\0') {
+			headers = curl_slist_append(headers, g_output.auth_header);
+		}
 		curl_easy_setopt(curl, CURLOPT_URL, g_output.output_url);
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
@@ -305,7 +283,7 @@ int output_init(const syswatch_config_t *cfg, char **err)
 {
 	if (!cfg) {
 		if (err) {
-			*err = xstrdup("output error: null config");
+			*err = strdup("output error: null config");
 		}
 		return -1;
 	}
@@ -326,7 +304,7 @@ int output_init(const syswatch_config_t *cfg, char **err)
 	if (strcmp(cfg->output_type, "file") == 0) {
 		if (cfg->output_path[0] == '\0') {
 			if (err) {
-				*err = xstrdup("output error: output.path required for file output");
+				*err = strdup("output error: output.path required for file output");
 			}
 			return -1;
 		}
@@ -336,7 +314,7 @@ int output_init(const syswatch_config_t *cfg, char **err)
 			if (err) {
 				char message[512];
 				snprintf(message, sizeof(message), "output error: failed to open '%s'", cfg->output_path);
-				*err = xstrdup(message);
+				*err = strdup(message);
 			}
 			return -1;
 		}
@@ -350,14 +328,14 @@ int output_init(const syswatch_config_t *cfg, char **err)
 	if (strcmp(cfg->output_type, "http_post") == 0) {
 		if (cfg->output_url[0] == '\0') {
 			if (err) {
-				*err = xstrdup("output error: output.url required for http_post");
+				*err = strdup("output error: output.url required for http_post");
 			}
 			return -1;
 		}
 
 		if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
 			if (err) {
-				*err = xstrdup("output error: failed to initialize libcurl");
+				*err = strdup("output error: failed to initialize libcurl");
 			}
 			return -1;
 		}
@@ -365,11 +343,14 @@ int output_init(const syswatch_config_t *cfg, char **err)
 		g_output.mode = OUTPUT_HTTP_POST;
 		g_output.curl_ready = true;
 		snprintf(g_output.output_url, sizeof(g_output.output_url), "%s", cfg->output_url);
+		if (cfg->output_auth_header[0] != '\0') {
+			snprintf(g_output.auth_header, sizeof(g_output.auth_header), "%s", cfg->output_auth_header);
+		}
 		fprintf(stderr, "syswatch: output_init selected http_post -> %s\n", g_output.output_url);
 		batch_reset();
 		if (!g_output.batch_items) {
 			if (err) {
-				*err = xstrdup("output error: failed to allocate HTTP batch buffer");
+				*err = strdup("output error: failed to allocate HTTP batch buffer");
 			}
 			curl_global_cleanup();
 			memset(&g_output, 0, sizeof(g_output));
@@ -381,7 +362,7 @@ int output_init(const syswatch_config_t *cfg, char **err)
 	if (err) {
 		char message[256];
 		snprintf(message, sizeof(message), "output error: unknown output.type '%s'", cfg->output_type);
-		*err = xstrdup(message);
+		*err = strdup(message);
 	}
 	return -1;
 }
@@ -393,7 +374,6 @@ int output_get_mode(void)
 
 int output_emit_event(const char *json_line)
 {
-	fprintf(stderr, "syswatch: output_emit_event mode=%d\n", g_output.mode);
 	char *copy;
 
 	if (!json_line) {
@@ -421,15 +401,12 @@ int output_emit_event(const char *json_line)
 		if (batch_ensure_capacity(g_output.batch_count + 1) != 0) {
 			return -1;
 		}
-		copy = xstrdup(json_line);
+		copy = strdup(json_line);
 		if (!copy) {
 			return -1;
 		}
 		g_output.batch_items[g_output.batch_count++] = copy;
 		if ((int)g_output.batch_count >= g_output.batch_size) {
-			return http_post_batch();
-		}
-		if (g_output.batch_interval_seconds > 0 && batch_age_seconds() >= (double)g_output.batch_interval_seconds) {
 			return http_post_batch();
 		}
 		return 0;
