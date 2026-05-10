@@ -80,6 +80,7 @@ typedef struct {
 	char output_type[16]; /* stdout | file | http_post */
 	char output_url[256];
 	char output_path[256];
+	char output_auth_header[256];
 	int output_batch_size;
 	int output_batch_interval_seconds;
 	int output_retry_max_attempts;

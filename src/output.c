@@ -22,6 +22,7 @@ typedef struct {
 	char output_path[256];
 
 	char output_url[256];
+	char auth_header[256];
 	int batch_size;
 	int batch_interval_seconds;
 	int retry_max_attempts;
@@ -206,6 +207,9 @@ static int http_post_batch(void)
 		struct curl_slist *headers = NULL;
 
 		headers = curl_slist_append(headers, "Content-Type: application/json");
+		if (g_output.auth_header[0] != '\0') {
+			headers = curl_slist_append(headers, g_output.auth_header);
+		}
 		curl_easy_setopt(curl, CURLOPT_URL, g_output.output_url);
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
@@ -339,6 +343,9 @@ int output_init(const syswatch_config_t *cfg, char **err)
 		g_output.mode = OUTPUT_HTTP_POST;
 		g_output.curl_ready = true;
 		snprintf(g_output.output_url, sizeof(g_output.output_url), "%s", cfg->output_url);
+		if (cfg->output_auth_header[0] != '\0') {
+			snprintf(g_output.auth_header, sizeof(g_output.auth_header), "%s", cfg->output_auth_header);
+		}
 		fprintf(stderr, "syswatch: output_init selected http_post -> %s\n", g_output.output_url);
 		batch_reset();
 		if (!g_output.batch_items) {

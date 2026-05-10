@@ -234,6 +234,10 @@ static int set_output_key(syswatch_config_t *cfg, const char *key, char *value, 
 		}
 		return 0;
 	}
+	if (strcmp(key, "auth_header") == 0) {
+		strncpy(cfg->output_auth_header, value, sizeof(cfg->output_auth_header) - 1);
+		return 0;
+	}
 
 	set_error(err, "config error at line %d: unknown output key '%s'", line_no, key);
 	return -1;
