@@ -41,7 +41,7 @@ void queue_destroy(event_queue_t *q) {
 
 /* Enqueue event. Drop oldest if queue is full. */
 int queue_enqueue(event_queue_t *q, const char *json_data, size_t len) {
-	if (!q || !json_data || len == 0 || len > MAX_EVENT_SIZE) {
+	if (!q || !json_data || len == 0 || len >= MAX_EVENT_SIZE) {
 		return -1;
 	}
 
@@ -57,6 +57,7 @@ int queue_enqueue(event_queue_t *q, const char *json_data, size_t len) {
 	/* Enqueue at tail */
 	event_queue_entry_t *entry = &q->entries[q->tail];
 	memcpy(entry->json_data, json_data, len);
+	entry->json_data[len] = '\0';
 	entry->json_len = len;
 	if (clock_gettime(CLOCK_REALTIME, &entry->enqueue_time) != 0) {
 		entry->enqueue_time.tv_sec = 0;
