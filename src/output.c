@@ -163,6 +163,24 @@ static void batch_start_if_needed(void)
 	}
 }
 
+/* Capture response body for diagnostics */
+typedef struct {
+	char data[2048];
+	size_t len;
+} response_buf_t;
+
+static size_t write_response_cb(void *ptr, size_t size, size_t nmemb, void *userdata)
+{
+	response_buf_t *buf = (response_buf_t *)userdata;
+	size_t bytes = size * nmemb;
+	size_t space = sizeof(buf->data) - buf->len - 1;
+	if (bytes > space) bytes = space;
+	memcpy(buf->data + buf->len, ptr, bytes);
+	buf->len += bytes;
+	buf->data[buf->len] = '\0';
+	return size * nmemb;
+}
+
 static int http_post_batch(void)
 {
 	CURL *curl;
@@ -172,6 +190,7 @@ static int http_post_batch(void)
 	int attempt;
 	long response_code;
 	CURLcode code;
+	response_buf_t resp;
 
 	if (g_output.batch_count == 0) {
 		return 0;
@@ -216,6 +235,10 @@ static int http_post_batch(void)
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
 		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
 		curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+		resp.len = 0;
+		resp.data[0] = '\0';
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_response_cb);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
 
 		code = curl_easy_perform(curl);
 		response_code = 0;
@@ -230,6 +253,9 @@ static int http_post_batch(void)
 			}
 			if (response_code >= 400 && response_code < 500 && response_code != 429) {
 				fprintf(stderr, "syswatch: dropping HTTP batch due to client error %ld\n", response_code);
+				fprintf(stderr, "syswatch: response body: %s\n", resp.data);
+				fprintf(stderr, "syswatch: request body (%zu bytes): %.500s%s\n",
+					strlen(body), body, strlen(body) > 500 ? "..." : "");
 				curl_slist_free_all(headers);
 				curl_easy_cleanup(curl);
 				free(body);
@@ -326,7 +352,10 @@ int output_init(const syswatch_config_t *cfg, char **err)
 	}
 
 	if (strcmp(cfg->output_type, "http_post") == 0) {
-		if (cfg->output_url[0] == '\0') {
+		const char *env_url = getenv("PULSE_RECEIVER_URL");
+		const char *env_auth = getenv("PULSE_AUTH_HEADER");
+
+		if (cfg->output_url[0] == '\0' && !env_url) {
 			if (err) {
 				*err = strdup("output error: output.url required for http_post");
 			}
@@ -342,9 +371,16 @@ int output_init(const syswatch_config_t *cfg, char **err)
 
 		g_output.mode = OUTPUT_HTTP_POST;
 		g_output.curl_ready = true;
-		snprintf(g_output.output_url, sizeof(g_output.output_url), "%s", cfg->output_url);
-		if (cfg->output_auth_header[0] != '\0') {
+		snprintf(g_output.output_url, sizeof(g_output.output_url), "%s",
+			env_url ? env_url : cfg->output_url);
+		if (env_auth) {
+			snprintf(g_output.auth_header, sizeof(g_output.auth_header), "%s", env_auth);
+		} else if (cfg->output_auth_header[0] != '\0') {
 			snprintf(g_output.auth_header, sizeof(g_output.auth_header), "%s", cfg->output_auth_header);
+		}
+		if (env_url || env_auth) {
+			fprintf(stderr, "syswatch: env overrides applied (url=%s, auth=%s)\n",
+				env_url ? "env" : "config", env_auth ? "env" : "config");
 		}
 		fprintf(stderr, "syswatch: output_init selected http_post -> %s\n", g_output.output_url);
 		batch_reset();
